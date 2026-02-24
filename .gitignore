@@ -1,0 +1,15 @@
+# dependencies
+node_modules
+.pnpm-store
+
+# env (do not commit secrets)
+.env*.local
+.env*
+
+# Next.js
+.next
+out
+
+# misc
+.DS_Store
+*.pem
