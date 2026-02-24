@@ -32,9 +32,9 @@ export default function PlayBroadcastPage() {
   const [ttsProvider, setTtsProvider] = useState<"azure" | "google">("google");
   const [presetId, setPresetId] = useState<string>(DEFAULT_TTS.presetId);
   const [googlePresetId, setGooglePresetId] = useState<string>(GOOGLE_TTS_PRESETS[0].id);
-  const [speed, setSpeed] = useState(DEFAULT_TTS.speed);
-  const [ttsBreakSeconds, setTtsBreakSeconds] = useState(DEFAULT_TTS.breakSeconds);
-  const [manualVoice, setManualVoice] = useState(MANUAL_VOICES[0].value);
+  const [speed, setSpeed] = useState<number>(DEFAULT_TTS.speed);
+  const [ttsBreakSeconds, setTtsBreakSeconds] = useState<number>(DEFAULT_TTS.breakSeconds);
+  const [manualVoice, setManualVoice] = useState<string>(MANUAL_VOICES[0].value);
   const [manualStyle, setManualStyle] = useState("default");
   const [manualPitch, setManualPitch] = useState("0%");
   const [manualStyleDegree, setManualStyleDegree] = useState(1.2);
@@ -147,7 +147,7 @@ export default function PlayBroadcastPage() {
           voice: isManual ? manualVoice : preset.voice,
           style: isManual
             ? (manualStyle === "default" ? undefined : manualStyle)
-            : "style" in preset && preset.style !== undefined && preset.style !== "default"
+            : "style" in preset && preset.style !== undefined
               ? preset.style
               : undefined,
           rate: isManual ? rateStr : ("rate" in preset && preset.rate != null ? preset.rate : rateStr),
