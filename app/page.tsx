@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { getAllSessions } from "@/lib/store";
-import { formatRelativeTime, formatScheduledRange } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/utils";
 import type { SessionWithItems } from "@/lib/types";
 
 export default function HomePage() {
@@ -20,9 +20,6 @@ export default function HomePage() {
           <h1 className="text-3xl font-bold tracking-tight text-stone-800 sm:text-4xl">
             마트방송
           </h1>
-          <p className="mt-2 text-stone-500 sm:text-lg">
-            행사 상품 표로 입력 → 멘트 생성 → MP3 저장 후 재생
-          </p>
         </header>
 
         <div className="space-y-8">
@@ -38,9 +35,6 @@ export default function HomePage() {
                 <h2 className="text-xl font-semibold text-stone-800">
                   새 방송 만들기
                 </h2>
-                <p className="mt-0.5 text-sm text-stone-500">
-                  행사 유형 선택 후 상품 표 입력 · 멘트 생성 · MP3 저장
-                </p>
               </div>
               <span className="shrink-0 text-stone-400">→</span>
             </div>
@@ -61,11 +55,10 @@ export default function HomePage() {
             ) : (
               <ul className="mt-4 space-y-3">
                 {sessions.map((session) => {
-                  const scheduled = formatScheduledRange(session.scheduledAt, session.scheduledEndAt);
                   return (
                     <li key={session.id}>
                       <Link
-                        href={`/broadcast/${session.id}`}
+                        href={`/broadcast/${session.id}/edit`}
                         className="block rounded-xl border border-stone-200 px-4 py-3 transition hover:border-amber-300 hover:bg-amber-50/50"
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -74,34 +67,16 @@ export default function HomePage() {
                           </span>
                           <span className="shrink-0 text-stone-400">→</span>
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-500">
+                        <div className="mt-1 flex flex-col text-xs text-stone-500">
+                          <span>
+                            <span className="inline-block w-28 font-semibold">생성일시</span>
+                            {new Date(session.createdAt).toLocaleString("ko-KR")}
+                          </span>
                           {session.lastPlayedAt && (
                             <span>
-                              <span className="font-semibold">마지막 재생</span>{" "}
-                              {formatRelativeTime(session.lastPlayedAt)}
+                              <span className="inline-block w-28 font-semibold">마지막 방송일시</span>
+                              {new Date(session.lastPlayedAt).toLocaleString("ko-KR")}
                             </span>
-                          )}
-                          {session.lastGeneratedAt && (
-                            <>
-                              {session.lastPlayedAt && (
-                                <span className="text-stone-300">|</span>
-                              )}
-                              <span>
-                                <span className="font-semibold">생성</span>{" "}
-                                {formatRelativeTime(session.lastGeneratedAt)}
-                              </span>
-                            </>
-                          )}
-                          {scheduled && (
-                            <>
-                              {(session.lastPlayedAt || session.lastGeneratedAt) && (
-                                <span className="text-stone-300">|</span>
-                              )}
-                              <span>
-                                <span className="font-semibold">예정</span>{" "}
-                                {scheduled}
-                              </span>
-                            </>
                           )}
                         </div>
                       </Link>

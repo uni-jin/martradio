@@ -29,6 +29,10 @@ export interface Session {
   lastPlayedAt: string | null;
   latestAudioUrl: string | null;
   generatedText: string | null;
+  /** 배경 음악 (YouTube) 관련 정보 */
+  bgmYoutubeUrl?: string | null;
+  bgmStartSeconds?: number | null;
+  bgmEndSeconds?: number | null;
   /** TTS 제공자: azure | google. 없으면 azure */
   ttsProvider?: "azure" | "google";
   /** TTS 음성 설정 (방송별 저장) */

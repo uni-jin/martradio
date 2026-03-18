@@ -18,6 +18,8 @@ import {
   ratePercentToSpeed,
 } from "@/lib/ttsOptions";
 import type { SessionWithItems } from "@/lib/types";
+import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
+import { extractYoutubeId } from "@/lib/utils";
 
 export default function PlayBroadcastPage() {
   const params = useParams();
@@ -40,9 +42,35 @@ export default function PlayBroadcastPage() {
   const [manualStyleDegree, setManualStyleDegree] = useState(1.2);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [bgmVolume, setBgmVolume] = useState(40);
   const audioRef = useRef<HTMLAudioElement>(null);
   const blobUrlRef = useRef<string | null>(null);
   const repeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loopBackRef = useRef<(() => void) | null>(null);
+  const onBgmEndRef = useRef<() => void>(() => {});
+
+  const youtubeId = session?.bgmYoutubeUrl ? extractYoutubeId(session.bgmYoutubeUrl) : null;
+  const hasBgm = Boolean(youtubeId);
+  const { containerId, player: ytPlayer } = useYoutubeSegmentPlayer(
+    hasBgm ? youtubeId : null,
+    session?.bgmStartSeconds ?? null,
+    session?.bgmEndSeconds ?? null,
+    () => onBgmEndRef.current?.()
+  );
+
+  useEffect(() => {
+    onBgmEndRef.current = () => {
+      const el = audioRef.current;
+      if (!el) return;
+      loopBackRef.current = () => {
+        ytPlayer.setVolume(bgmVolume);
+        ytPlayer.playSegment();
+      };
+      el.onended = () => loopBackRef.current?.();
+      el.currentTime = 0;
+      el.play().catch(() => setIsPlaying(false));
+    };
+  }, [ytPlayer, bgmVolume]);
 
   useEffect(() => {
     if (!id) return;
@@ -206,6 +234,18 @@ export default function PlayBroadcastPage() {
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = URL.createObjectURL(blob);
       audioRef.current.src = blobUrlRef.current;
+      if (hasBgm && ytPlayer.ready) {
+        loopBackRef.current = () => {
+          ytPlayer.setVolume(bgmVolume);
+          ytPlayer.playSegment();
+        };
+        audioRef.current.onended = () => loopBackRef.current?.();
+      } else {
+        audioRef.current.onended = () => {
+          setIsPlaying(false);
+          scheduleRepeat();
+        };
+      }
       await audioRef.current.play();
       setIsPlaying(true);
 
@@ -220,12 +260,13 @@ export default function PlayBroadcastPage() {
     } catch {
       setGenerateError("재생을 시작할 수 없습니다.");
     }
-  }, [id]);
+  }, [id, hasBgm, ytPlayer, bgmVolume, scheduleRepeat]);
 
   const pause = useCallback(() => {
     audioRef.current?.pause();
+    if (hasBgm) ytPlayer.pause();
     setIsPlaying(false);
-  }, []);
+  }, [hasBgm, ytPlayer]);
 
   const stop = useCallback(() => {
     if (repeatTimerRef.current) {
@@ -234,8 +275,9 @@ export default function PlayBroadcastPage() {
     }
     audioRef.current?.pause();
     if (audioRef.current) audioRef.current.currentTime = 0;
+    if (hasBgm) ytPlayer.stop();
     setIsPlaying(false);
-  }, []);
+  }, [hasBgm, ytPlayer]);
 
   const onEnded = useCallback(() => {
     setIsPlaying(false);
@@ -288,9 +330,11 @@ export default function PlayBroadcastPage() {
         <h1 className="mt-4 text-2xl font-bold text-stone-800">{session.title}</h1>
         <p className="mt-1 text-sm text-stone-500">방송 재생</p>
 
+        {hasBgm && <div id={containerId} className="h-px w-px overflow-hidden opacity-0" aria-hidden />}
+
         <audio
           ref={audioRef}
-          onEnded={onEnded}
+          onEnded={hasBgm ? undefined : onEnded}
           onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
           onLoadedMetadata={() => setDuration(audioRef.current?.duration ?? 0)}
           onDurationChange={() => setDuration(audioRef.current?.duration ?? 0)}
@@ -503,7 +547,7 @@ export default function PlayBroadcastPage() {
               <button
                 type="button"
                 onClick={isPlaying ? pause : play}
-                disabled={!hasAudio}
+                disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
                 className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-stone-800 text-white disabled:opacity-40"
                 aria-label={isPlaying ? "일시정지" : "재생"}
               >
@@ -512,7 +556,7 @@ export default function PlayBroadcastPage() {
               <button
                 type="button"
                 onClick={pause}
-                disabled={!hasAudio}
+                disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
                 className="rounded-lg border border-stone-300 px-4 py-2 text-sm disabled:opacity-40"
               >
                 ⏸ 일시정지
@@ -520,12 +564,15 @@ export default function PlayBroadcastPage() {
               <button
                 type="button"
                 onClick={stop}
-                disabled={!hasAudio}
+                disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
                 className="rounded-lg border border-stone-300 px-4 py-2 text-sm disabled:opacity-40"
               >
                 ⏹ 정지
               </button>
             </div>
+            {hasBgm && !ytPlayer.ready && (
+              <p className="text-xs text-stone-500">중간 음악 로딩 중…</p>
+            )}
             {hasAudio && duration > 0 && (
               <div className="w-full max-w-md">
                 <input
@@ -550,6 +597,30 @@ export default function PlayBroadcastPage() {
           </div>
           {!hasAudio && (
             <p className="mt-2 text-sm text-stone-500">먼저 MP3를 생성해 주세요.</p>
+          )}
+
+          {hasBgm && (
+            <div className="mt-6 border-t border-stone-100 pt-4">
+              <h3 className="text-sm font-medium text-stone-700">중간 음악 볼륨</h3>
+              <p className="mt-0.5 text-xs text-stone-500">
+                방송 음성 다음에 재생되는 YouTube 구간의 음량입니다.
+              </p>
+              <div className="mt-2 flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={bgmVolume}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setBgmVolume(v);
+                    ytPlayer.setVolume(v);
+                  }}
+                  className="h-2 flex-1 accent-amber-500"
+                />
+                <span className="w-10 text-sm text-stone-600">{bgmVolume}%</span>
+              </div>
+            </div>
           )}
 
           <div className="mt-6 border-t border-stone-100 pt-4">

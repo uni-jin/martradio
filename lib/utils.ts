@@ -1,3 +1,20 @@
+export function extractYoutubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname === "youtu.be") return u.pathname.slice(1) || null;
+    if (u.hostname.includes("youtube.com")) {
+      const v = u.searchParams.get("v");
+      if (v) return v;
+      const parts = u.pathname.split("/");
+      const idx = parts.indexOf("embed");
+      if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function generateId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
