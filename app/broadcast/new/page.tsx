@@ -409,24 +409,25 @@ export default function NewBroadcastPage() {
               </div>
             </div>
             {bgmError && <p className="text-xs text-red-600">{bgmError}</p>}
-            {previewSrc && (
-              <div className="mt-2 space-y-2">
-                <p className="text-xs text-stone-500">
-                  아래 미리듣기에서 지정한 구간이 제대로 재생되는지 확인해 보세요.
-                  <br />
-                  브라우저나 YouTube 정책에 따라 자동 재생이 제한될 수 있습니다.
-                </p>
-                <div className="aspect-video overflow-hidden rounded-xl border border-stone-200 bg-stone-900">
+            <div className={previewSrc ? "mt-2 space-y-2" : "hidden"}>
+              <p className="text-xs text-stone-500">
+                아래 미리듣기에서 지정한 구간이 제대로 재생되는지 확인해 보세요.
+                <br />
+                브라우저나 YouTube 정책에 따라 자동 재생이 제한될 수 있습니다.
+              </p>
+              <div className="aspect-video overflow-hidden rounded-xl border border-stone-200 bg-stone-900">
+                {previewSrc && (
                   <iframe
+                    key={previewSrc}
                     src={previewSrc}
                     className="h-full w-full"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                     title="배경 음악 미리듣기"
                   />
-                </div>
+                )}
               </div>
-            )}
+            </div>
 
             {hasBgm && (
               <div className="mt-3">
@@ -456,7 +457,7 @@ export default function NewBroadcastPage() {
 
         <section className="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-stone-800">3. 음성 파일 생성 및 재생</h2>
-          {hasBgm && <div id={containerId} className="h-px w-px overflow-hidden opacity-0" aria-hidden />}
+          <div id={containerId} className="h-px w-px overflow-hidden opacity-0" aria-hidden />
 
           <audio
             ref={audioRef}
