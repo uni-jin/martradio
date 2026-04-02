@@ -145,6 +145,7 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
 }
 
 export async function POST(request: NextRequest) {
+  try {
   let body: {
     userId?: unknown;
     planId?: unknown;
@@ -324,4 +325,8 @@ export async function POST(request: NextRequest) {
     approvedAt: charged.approvedAt,
     subscription: sub,
   });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: `서버 처리 중 오류: ${msg}` }, { status: 500 });
+  }
 }
