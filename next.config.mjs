@@ -21,6 +21,7 @@ const contentSecurityPolicy = [
         "connect-src",
         "'self'",
         "https://api.tosspayments.com",
+        "https://log.tosspayments.com",
         "https://texttospeech.googleapis.com",
         "https://*.googleapis.com",
         "https://*.tts.speech.microsoft.com",
