@@ -59,6 +59,7 @@ const contentSecurityPolicy = [
     "'self'",
     "https://www.youtube.com",
     "https://www.youtube-nocookie.com",
+    "https://vercel.live",
     "https://postcode.map.daum.net",
     "https://suggest-bar.daum.net",
     "https://spi.maps.daum.net",
