@@ -5,6 +5,7 @@ import {
   upsertSubscriptionAfterConfirm,
 } from "@/lib/subscriptionServerStore";
 import { isPaidPlanId } from "@/lib/subscriptionPlans";
+import { isValidPublicUserId } from "@/lib/validation.shared";
 
 function tossSecretKeyFromEnv(): string | null {
   const key = process.env.TOSS_SECRET_KEY?.trim();
@@ -36,6 +37,9 @@ export async function POST(request: NextRequest) {
   }
   if (typeof body.userId !== "string" || !body.userId.trim()) {
     return NextResponse.json({ error: "userId가 필요합니다." }, { status: 400 });
+  }
+  if (!isValidPublicUserId(body.userId.trim())) {
+    return NextResponse.json({ error: "userId 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
   if (typeof body.paymentKey !== "string" || !body.paymentKey.trim()) {

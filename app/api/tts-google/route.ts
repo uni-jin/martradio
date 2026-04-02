@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGoogleTtsAccessToken } from "@/lib/googleTtsAuth";
+import { safeApiErrorMessage } from "@/lib/apiSafeError";
 import { buildMarkupWithBreaks } from "@/lib/ttsGoogleRequest";
 import { ratePercentStringToSpeakingRate } from "@/lib/ttsOptions";
 
@@ -76,7 +77,10 @@ export async function POST(request: NextRequest) {
     accessToken = await getGoogleTtsAccessToken();
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: message }, { status: 503 });
+    return NextResponse.json(
+      { error: safeApiErrorMessage(message, "음성 합성 인증에 실패했습니다.") },
+      { status: 503 }
+    );
   }
 
   const audioConfig: Record<string, unknown> = {
@@ -133,6 +137,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: `TTS 요청 실패: ${message}` }, { status: 502 });
+    return NextResponse.json(
+      { error: safeApiErrorMessage(`TTS 요청 실패: ${message}`, "음성 합성 요청에 실패했습니다.") },
+      { status: 502 }
+    );
   }
 }

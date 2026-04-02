@@ -107,8 +107,6 @@ type UserKindFilter = "all" | "free" | "paid";
 type SearchField = "username" | "name" | "phone" | "martName" | "referrer";
 
 function inferJoinedAt(u: Record<string, unknown>): string | null {
-  const username = typeof u.username === "string" ? u.username.trim().toLowerCase() : "";
-  if (username === "test") return "2026-03-30T00:00:00.000Z";
   if (typeof u.createdAt === "string" && u.createdAt.trim()) return u.createdAt;
   const id = typeof u.id === "string" ? u.id : "";
   const m = /^user_(\d+)$/.exec(id);
@@ -138,7 +136,7 @@ export default function AdminUsersPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/subscription/admin/subscriptions");
+        const res = await fetch("/api/subscription/admin/subscriptions", { credentials: "include" });
         const data = await res.json().catch(() => ({}));
         if (cancelled || !res.ok || data?.ok !== true || !Array.isArray(data.subscriptions)) return;
         const next = new Map<string, SubscriptionSnapshot>();

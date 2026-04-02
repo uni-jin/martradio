@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminOverrideSubscription } from "@/lib/subscriptionServerStore";
+import { requireAdminApi } from "@/lib/requireAdminApi.server";
+import { appendSecurityAudit } from "@/lib/securityAudit.server";
+import { isValidPublicUserId } from "@/lib/validation.shared";
 
 type PaidPlanId = "small" | "medium" | "large";
 
@@ -11,6 +14,9 @@ function normalizePlanId(planId: unknown): PaidPlanId | "free" | null {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdminApi();
+  if (auth instanceof NextResponse) return auth;
+
   let body: {
     userId?: unknown;
     planId?: unknown;
@@ -30,6 +36,9 @@ export async function POST(request: NextRequest) {
 
   if (typeof body.userId !== "string" || !body.userId.trim()) {
     return NextResponse.json({ error: "userId가 필요합니다." }, { status: 400 });
+  }
+  if (!isValidPublicUserId(body.userId.trim())) {
+    return NextResponse.json({ error: "userId 형식이 올바르지 않습니다." }, { status: 400 });
   }
   const normalizedPlanId =
     body.planId === undefined ? undefined : normalizePlanId(body.planId);
@@ -76,6 +85,12 @@ export async function POST(request: NextRequest) {
       body.latestPaymentKey === undefined
         ? undefined
         : (body.latestPaymentKey as string | null),
+  });
+
+  appendSecurityAudit({
+    type: "admin_subscription_override",
+    admin: auth.username,
+    targetUserId: body.userId.trim(),
   });
 
   return NextResponse.json({ ok: true, subscription });

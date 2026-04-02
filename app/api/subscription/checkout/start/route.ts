@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSubscriptionStatusByUser, savePendingCheckout } from "@/lib/subscriptionServerStore";
 import { computePaidPlanUpgradeChargeKrw } from "@/lib/subscriptionUpgrade";
 import { getPlanAmount, getPlanOrderName, isPaidPlanId, isPaidPlanUpgrade } from "@/lib/subscriptionPlans";
+import { isValidPublicUserId } from "@/lib/validation.shared";
 
 export async function POST(request: NextRequest) {
   let body: { planId?: unknown; userId?: unknown };
@@ -20,6 +21,9 @@ export async function POST(request: NextRequest) {
   }
 
   const userId = body.userId.trim();
+  if (!isValidPublicUserId(userId)) {
+    return NextResponse.json({ error: "userId 형식이 올바르지 않습니다." }, { status: 400 });
+  }
   const sub = getSubscriptionStatusByUser(userId);
   const approvalIso = new Date().toISOString();
   let amount = getPlanAmount(paidPlanId);

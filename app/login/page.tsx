@@ -7,8 +7,8 @@ import { login } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("test");
-  const [password, setPassword] = useState("123qwe");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,9 +33,6 @@ export default function LoginPage() {
       <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-4">
         <div className="w-full rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
           <h1 className="text-2xl font-bold text-stone-800">마트방송 로그인</h1>
-          <p className="mt-2 text-sm text-stone-500">
-            로컬 테스트용 계정은 <span className="font-semibold">아이디 test / 비밀번호 123qwe</span> 입니다.
-          </p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>

@@ -7,7 +7,7 @@ import { loginAdmin } from "@/lib/adminAuth";
 export default function AdminLoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("123qwe");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,9 +30,6 @@ export default function AdminLoginPage() {
       <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-4">
         <div className="w-full rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
           <h1 className="text-2xl font-bold text-stone-800">관리자 로그인</h1>
-          <p className="mt-2 text-sm text-stone-500">
-            기본 계정: <span className="font-medium">admin / 123qwe</span>
-          </p>
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <div>
               <label className="text-sm text-stone-600">아이디</label>

@@ -28,6 +28,9 @@ yarn-error.log*
 # local env files
 .env*.local
 
+# 로컬 런타임 데이터·보안 감사 로그
+.martradio-data/security-audit.jsonl
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

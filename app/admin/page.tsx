@@ -95,7 +95,7 @@ export default function AdminHomePage() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/subscription/admin/subscriptions");
+        const res = await fetch("/api/subscription/admin/subscriptions", { credentials: "include" });
         const data = await res.json().catch(() => ({}));
         if (cancelled || !res.ok || data?.ok !== true || !Array.isArray(data.subscriptions)) {
           if (!cancelled) setPlanChangeReservationCount(0);

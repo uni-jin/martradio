@@ -161,27 +161,6 @@ export async function register(payload: RegisterPayload): Promise<AuthUser> {
 }
 
 export async function login(username: string, password: string): Promise<AuthUser> {
-  // 로컬 테스트 계정도 일반 회원과 동일하게 저장소 기반으로 동작
-  if (username === "test" && password === "123qwe") {
-    const users = getAllStoredUsers();
-    if (!users.some((u) => u.username === "test")) {
-      const testUser: StoredUser = {
-        id: "test",
-        username: "test",
-        password: "123qwe",
-        name: "테스트 계정",
-        martName: "테스트 마트",
-        martAddressBase: null,
-        martAddressDetail: null,
-        martAddress: null,
-        phone: "01000000000",
-        referrerId: null,
-        planId: "free",
-      };
-      saveAllStoredUsers([...users, testUser]);
-    }
-  }
-
   // 로컬 스토리지에 저장된 회원 정보에서 조회
   if (typeof window !== "undefined") {
     const users = getAllStoredUsers();
@@ -313,24 +292,7 @@ export function getStoredUserForCurrentSession(): StoredUser | null {
   const cur = getCurrentUser();
   if (!cur) return null;
   const users = getAllStoredUsers();
-  const found = users.find((u) => u.id === cur.id) ?? null;
-  if (found) return found;
-  if (cur.id !== "test") return null;
-  const seeded: StoredUser = {
-    id: "test",
-    username: "test",
-    password: "123qwe",
-    name: "테스트 계정",
-    martName: "테스트 마트",
-    martAddressBase: null,
-    martAddressDetail: null,
-    martAddress: null,
-    phone: "01000000000",
-    referrerId: null,
-    planId: cur.planId ?? "free",
-  };
-  saveAllStoredUsers([...users, seeded]);
-  return seeded;
+  return users.find((u) => u.id === cur.id) ?? null;
 }
 
 export type ProfileUpdatePayload = {

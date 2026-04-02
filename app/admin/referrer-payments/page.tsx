@@ -7,8 +7,6 @@ import { getAdminPayments, getAdminReferrers, getAdminUsers } from "@/lib/adminD
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 function inferJoinedAt(u: Record<string, unknown>): string | null {
-  const username = typeof u.username === "string" ? u.username.trim().toLowerCase() : "";
-  if (username === "test") return "2026-03-30T00:00:00.000Z";
   if (typeof u.createdAt === "string" && u.createdAt.trim()) return u.createdAt;
   const id = typeof u.id === "string" ? u.id : "";
   const m = /^user_(\d+)$/.exec(id);

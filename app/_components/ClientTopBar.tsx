@@ -9,7 +9,7 @@ import {
   logout,
   type PlanId,
 } from "@/lib/auth";
-import { getCurrentAdmin, logoutAdmin } from "@/lib/adminAuth";
+import { fetchAdminSession, getCurrentAdmin, logoutAdmin } from "@/lib/adminAuth";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 export default function ClientTopBar() {
@@ -25,8 +25,10 @@ export default function ClientTopBar() {
     const syncFromStorage = () => {
       const isAdminPath = (pathname ?? "").startsWith("/admin");
       if (isAdminPath) {
-        const admin = getCurrentAdmin();
-        setAdminId(admin?.username ?? null);
+        void (async () => {
+          const admin = (await fetchAdminSession()) ?? getCurrentAdmin();
+          setAdminId(admin?.username ?? null);
+        })();
         setUserEmail(null);
         setPlanId(undefined);
         return;
@@ -107,8 +109,10 @@ export default function ClientTopBar() {
             <button
               type="button"
               onClick={() => {
-                logoutAdmin();
-                router.push("/admin/login");
+                void (async () => {
+                  await logoutAdmin();
+                  router.push("/admin/login");
+                })();
               }}
               className="rounded-full border border-stone-300 px-3 py-1 text-sm font-medium text-stone-700 hover:border-amber-400 hover:text-amber-700"
             >

@@ -16,6 +16,7 @@ import {
   isPaidPlanUpgrade,
 } from "@/lib/subscriptionPlans";
 import { computePaidPlanUpgradeChargeKrw } from "@/lib/subscriptionUpgrade";
+import { isValidPublicUserId } from "@/lib/validation.shared";
 
 function getTossSecret(): string | null {
   const key = process.env.TOSS_SECRET_KEY?.trim();
@@ -162,6 +163,9 @@ export async function POST(request: NextRequest) {
   const authKey = typeof body.authKey === "string" ? body.authKey.trim() : "";
   const useExistingBilling = body.useExistingBilling === true;
   const userId = body.userId.trim();
+  if (!isValidPublicUserId(userId)) {
+    return NextResponse.json({ error: "userId 형식이 올바르지 않습니다." }, { status: 400 });
+  }
 
   const secret = getTossSecret();
   if (!secret) {

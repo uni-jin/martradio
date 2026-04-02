@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { getCurrentAdmin } from "@/lib/adminAuth";
+import { fetchAdminSession } from "@/lib/adminAuth";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/admin/login"];
 
@@ -15,7 +15,6 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const currentPath = pathname ?? "";
 
-    // 로그인 페이지 등은 가드 없이 통과
     if (PUBLIC_PATHS.includes(currentPath)) {
       setChecked(true);
       return;
@@ -23,12 +22,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const isAdminPath = currentPath.startsWith("/admin");
     if (isAdminPath) {
-      const admin = getCurrentAdmin();
-      if (!admin) {
-        router.replace("/admin/login");
-        return;
-      }
-      setChecked(true);
+      void (async () => {
+        const me = await fetchAdminSession();
+        if (!me) {
+          router.replace("/admin/login");
+          return;
+        }
+        setChecked(true);
+      })();
       return;
     }
 
@@ -44,13 +45,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   if (!checked) {
     return (
       <main className="min-h-screen bg-[var(--bg)]">
-        <div className="flex min-h-screen items-center justify-center text-stone-500">
-          로딩 중...
-        </div>
+        <div className="flex min-h-screen items-center justify-center text-stone-500">로딩 중...</div>
       </main>
     );
   }
 
   return <>{children}</>;
 }
-

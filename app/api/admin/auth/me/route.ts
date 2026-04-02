@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import { getAllSubscriptionStatuses } from "@/lib/subscriptionServerStore";
 import { requireAdminApi } from "@/lib/requireAdminApi.server";
 
 export async function GET() {
   const admin = await requireAdminApi();
   if (admin instanceof NextResponse) return admin;
-  const subscriptions = getAllSubscriptionStatuses();
-  return NextResponse.json({ ok: true, subscriptions });
+  return NextResponse.json({ ok: true, username: admin.username, role: "admin" as const });
 }
