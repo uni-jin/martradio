@@ -10,17 +10,40 @@ export type AuthUser = {
 
 const AUTH_STORAGE_KEY = "mart-radio-auth-user";
 const USERS_STORAGE_KEY = "mart-radio-users";
+const REFERRERS_STORAGE_KEY = "mart-radio-referrers";
+const ADMIN_PRODUCTS_STORAGE_KEY = "mart-radio-admin-products";
 
-type StoredUser = {
+export type StoredUser = {
   id: string;
-  email: string;
+  username: string;
   password: string;
   name: string;
   martName: string;
+  /** 주소검색으로 입력한 도로명·지번 주소 */
+  martAddressBase?: string | null;
+  /** 상세주소 */
+  martAddressDetail?: string | null;
+  /** 통합 (목록·표시용, base+detail 또는 예전 단일 필드) */
+  martAddress?: string | null;
   phone: string;
-  businessNumber?: string | null;
-  referralCodeUsed?: string | null;
+  referrerId?: string | null;
   planId?: PlanId;
+};
+
+function combineMartAddress(
+  base?: string | null,
+  detail?: string | null,
+  legacy?: string | null
+): string | null {
+  const merged = [base?.trim(), detail?.trim()].filter(Boolean).join(" ").trim();
+  if (merged) return merged;
+  const leg = legacy?.trim();
+  return leg || null;
+}
+
+export type ReferrerOption = {
+  id: string;
+  name: string;
 };
 
 export function getCurrentUser(): AuthUser | null {
@@ -28,7 +51,12 @@ export function getCurrentUser(): AuthUser | null {
   try {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as AuthUser;
+    const parsed = JSON.parse(raw) as AuthUser;
+    return {
+      ...parsed,
+      isUnlimited: false,
+      planId: parsed.planId ?? "free",
+    };
   } catch {
     return null;
   }
@@ -62,33 +90,60 @@ function saveAllStoredUsers(users: StoredUser[]) {
 }
 
 export type RegisterPayload = {
-  email: string;
+  username: string;
   password: string;
   name: string;
   martName: string;
+  martAddressBase?: string;
+  martAddressDetail?: string;
   phone: string;
-  businessNumber?: string;
-  referralCode?: string;
+  referrerId?: string;
 };
+
+const DEFAULT_REFERRERS: ReferrerOption[] = [
+  { id: "ref-kim", name: "김영업" },
+  { id: "ref-lee", name: "이대리" },
+];
+
+export function getReferrerOptions(): ReferrerOption[] {
+  if (typeof window === "undefined") return DEFAULT_REFERRERS;
+  try {
+    const raw = window.localStorage.getItem(REFERRERS_STORAGE_KEY);
+    if (!raw) return DEFAULT_REFERRERS;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_REFERRERS;
+    return parsed
+      .filter(
+        (v) => typeof v?.id === "string" && typeof v?.name === "string" && v?.isActive !== false
+      )
+      .map((v) => ({ id: v.id as string, name: v.name as string }));
+  } catch {
+    return DEFAULT_REFERRERS;
+  }
+}
 
 export async function register(payload: RegisterPayload): Promise<AuthUser> {
   if (typeof window === "undefined") {
     throw new Error("브라우저 환경에서만 회원가입을 사용할 수 있습니다.");
   }
-  const email = payload.email.trim();
+  const username = payload.username.trim();
   const users = getAllStoredUsers();
-  if (users.some((u) => u.email === email)) {
+  if (users.some((u) => u.username === username)) {
     throw new Error("이미 가입된 아이디입니다.");
   }
+  const base = payload.martAddressBase?.trim() || null;
+  const detail = payload.martAddressDetail?.trim() || null;
   const stored: StoredUser = {
     id: `user_${Date.now()}`,
-    email,
+    username,
     password: payload.password,
     name: payload.name.trim(),
     martName: payload.martName.trim(),
+    martAddressBase: base,
+    martAddressDetail: detail,
+    martAddress: combineMartAddress(base, detail),
     phone: payload.phone.trim(),
-    businessNumber: payload.businessNumber?.trim() || null,
-    referralCodeUsed: payload.referralCode?.trim() || null,
+    referrerId: payload.referrerId?.trim() || null,
     planId: "free",
   };
   const next = [...users, stored];
@@ -96,7 +151,7 @@ export async function register(payload: RegisterPayload): Promise<AuthUser> {
 
   const user: AuthUser = {
     id: stored.id,
-    email: stored.email,
+    email: stored.username,
     name: stored.name,
     isUnlimited: false,
     planId: "free",
@@ -105,30 +160,38 @@ export async function register(payload: RegisterPayload): Promise<AuthUser> {
   return user;
 }
 
-export async function login(email: string, password: string): Promise<AuthUser> {
-  // 로컬 개발 초기 단계에서는 하드코딩된 테스트 계정만 허용
-  if (email === "test" && password === "123qwe") {
-    const user: AuthUser = {
-      id: "test",
-      email: "test",
-      name: "테스트 계정",
-      isUnlimited: true,
-      planId: "large",
-    };
-    saveUser(user);
-    return user;
+export async function login(username: string, password: string): Promise<AuthUser> {
+  // 로컬 테스트 계정도 일반 회원과 동일하게 저장소 기반으로 동작
+  if (username === "test" && password === "123qwe") {
+    const users = getAllStoredUsers();
+    if (!users.some((u) => u.username === "test")) {
+      const testUser: StoredUser = {
+        id: "test",
+        username: "test",
+        password: "123qwe",
+        name: "테스트 계정",
+        martName: "테스트 마트",
+        martAddressBase: null,
+        martAddressDetail: null,
+        martAddress: null,
+        phone: "01000000000",
+        referrerId: null,
+        planId: "free",
+      };
+      saveAllStoredUsers([...users, testUser]);
+    }
   }
 
   // 로컬 스토리지에 저장된 회원 정보에서 조회
   if (typeof window !== "undefined") {
     const users = getAllStoredUsers();
-    const found = users.find((u) => u.email === email);
+    const found = users.find((u) => u.username === username);
     if (!found || found.password !== password) {
       throw new Error("아이디 또는 비밀번호가 올바르지 않습니다.");
     }
     const user: AuthUser = {
       id: found.id,
-      email: found.email,
+      email: found.username,
       name: found.name,
       isUnlimited: false,
       planId: found.planId ?? "free",
@@ -145,31 +208,62 @@ export function logout() {
 }
 
 export function getPlanLabel(planId: PlanId | undefined, isUnlimited: boolean | undefined): string {
-  if (isUnlimited) return "테스트 (무제한)";
+  void isUnlimited;
   switch (planId) {
     case "small":
-      return "소형마트 (200자 제한)";
+      return "기본 플랜";
     case "medium":
-      return "중형마트 (1000자 제한)";
+      return "기본 플랜";
     case "large":
-      return "대형마트 (무제한)";
+      return "무제한 플랜";
     case "free":
     default:
-      return "무료 (50자 제한)";
+      return "무료";
   }
+}
+
+/** 관리자·목록 등에서 planId 문자열을 사용자 화면과 동일한 한글 플랜명으로 표시 */
+export function getPlanDisplayLabel(planId: string | undefined | null): string {
+  const raw = typeof planId === "string" && planId.trim() ? planId.trim() : "free";
+  if (raw === "free" || raw === "small" || raw === "medium" || raw === "large") {
+    return getPlanLabel(raw, false);
+  }
+  return raw;
+}
+
+export function getPricingCtaLabel(planId: PlanId | undefined): string {
+  const tier = planId ?? "free";
+  if (tier === "free" || tier === "large") return "플랜 구독";
+  return "플랜 업그레이드";
 }
 
 export function getMaxCharsForUser(user: AuthUser | null): number | null {
   if (!user) return 50;
-  if (user.isUnlimited) return null;
   const plan = user.planId ?? "free";
+  if (typeof window !== "undefined") {
+    try {
+      const raw = window.localStorage.getItem(ADMIN_PRODUCTS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Array<{ id?: unknown; maxChars?: unknown }>;
+        const matched = parsed.find((p) => p.id === plan);
+        if (matched && ("maxChars" in matched)) {
+          if (matched.maxChars === null) return null;
+          if (typeof matched.maxChars === "number" && Number.isFinite(matched.maxChars)) {
+            return matched.maxChars;
+          }
+        }
+      }
+    } catch {
+      // fallback to default policy
+    }
+  }
   switch (plan) {
     case "free":
       return 50;
     case "small":
-      return 200;
+      return 500;
     case "medium":
-      return 1000;
+      return 500;
     case "large":
       return null;
     default:
@@ -177,17 +271,140 @@ export function getMaxCharsForUser(user: AuthUser | null): number | null {
   }
 }
 
+export function getVisibleSessionCountForUser(user: AuthUser | null): number | null {
+  if (!user) return 1;
+  const plan = user.planId ?? "free";
+  if (typeof window !== "undefined") {
+    try {
+      const raw = window.localStorage.getItem(ADMIN_PRODUCTS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Array<{ id?: unknown; visibleSessionLimit?: unknown }>;
+        const matched = parsed.find((p) => p.id === plan);
+        if (matched && ("visibleSessionLimit" in matched)) {
+          if (matched.visibleSessionLimit === null) return null;
+          if (
+            typeof matched.visibleSessionLimit === "number" &&
+            Number.isFinite(matched.visibleSessionLimit)
+          ) {
+            return matched.visibleSessionLimit;
+          }
+        }
+      }
+    } catch {
+      // fallback to default policy
+    }
+  }
+  switch (plan) {
+    case "free":
+      return 1;
+    case "small":
+      return 5;
+    case "medium":
+      return 5;
+    case "large":
+      return null;
+    default:
+      return 1;
+  }
+}
+
+/** 로그인한 회원의 저장소 레코드 */
+export function getStoredUserForCurrentSession(): StoredUser | null {
+  const cur = getCurrentUser();
+  if (!cur) return null;
+  const users = getAllStoredUsers();
+  const found = users.find((u) => u.id === cur.id) ?? null;
+  if (found) return found;
+  if (cur.id !== "test") return null;
+  const seeded: StoredUser = {
+    id: "test",
+    username: "test",
+    password: "123qwe",
+    name: "테스트 계정",
+    martName: "테스트 마트",
+    martAddressBase: null,
+    martAddressDetail: null,
+    martAddress: null,
+    phone: "01000000000",
+    referrerId: null,
+    planId: cur.planId ?? "free",
+  };
+  saveAllStoredUsers([...users, seeded]);
+  return seeded;
+}
+
+export type ProfileUpdatePayload = {
+  name: string;
+  martName: string;
+  martAddressBase?: string;
+  martAddressDetail?: string;
+  phone: string;
+  newPassword?: string;
+  newPasswordConfirm?: string;
+};
+
+export function updateCurrentUserProfile(payload: ProfileUpdatePayload): AuthUser {
+  if (typeof window === "undefined") {
+    throw new Error("브라우저에서만 수정할 수 있습니다.");
+  }
+  const current = getCurrentUser();
+  if (!current) {
+    throw new Error("로그인이 필요합니다.");
+  }
+  const users = getAllStoredUsers();
+  const idx = users.findIndex((u) => u.id === current.id);
+  if (idx < 0) {
+    throw new Error("회원 정보를 찾을 수 없습니다.");
+  }
+  const prev = users[idx];
+  let password = prev.password;
+  const np = payload.newPassword?.trim();
+  if (np) {
+    const confirm = payload.newPasswordConfirm?.trim() ?? "";
+    if (np.length < 6) {
+      throw new Error("새 비밀번호는 6자 이상이어야 합니다.");
+    }
+    if (np !== confirm) {
+      throw new Error("새 비밀번호와 확인이 일치하지 않습니다.");
+    }
+    password = np;
+  }
+
+  const base = payload.martAddressBase?.trim() || null;
+  const detail = payload.martAddressDetail?.trim() || null;
+  const mergedAddr = [base, detail].filter(Boolean).join(" ").trim();
+  const martAddressResolved = mergedAddr || null;
+
+  const updated: StoredUser = {
+    ...prev,
+    name: payload.name.trim(),
+    martName: payload.martName.trim(),
+    martAddressBase: base,
+    martAddressDetail: detail,
+    martAddress: martAddressResolved,
+    phone: payload.phone.trim(),
+    password,
+  };
+
+  const next = [...users];
+  next[idx] = updated;
+  saveAllStoredUsers(next);
+
+  const nextAuth: AuthUser = {
+    ...current,
+    name: updated.name,
+  };
+  saveUser(nextAuth);
+  return nextAuth;
+}
+
 export function updateCurrentUserPlan(planId: PlanId): AuthUser | null {
   if (typeof window === "undefined") return null;
   const current = getCurrentUser();
   if (!current) return null;
-  if (current.isUnlimited) {
-    // 테스트 계정은 강제로 플랜 변경하지 않음
-    return current;
-  }
   const users = getAllStoredUsers();
   const updatedUsers = users.map((u) =>
-    u.email === current.email
+    u.id === current.id
       ? {
           ...u,
           planId,

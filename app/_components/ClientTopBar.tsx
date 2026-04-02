@@ -1,20 +1,40 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { getCurrentUser, getPlanLabel, logout } from "@/lib/auth";
+import { useEffect, useRef, useState } from "react";
+import {
+  getCurrentUser,
+  getPlanLabel,
+  getPricingCtaLabel,
+  logout,
+  type PlanId,
+} from "@/lib/auth";
+import { getCurrentAdmin, logoutAdmin } from "@/lib/adminAuth";
+import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 export default function ClientTopBar() {
   const router = useRouter();
   const pathname = usePathname();
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [planText, setPlanText] = useState<string>("");
+  const [planId, setPlanId] = useState<PlanId | undefined>(undefined);
+  const [adminId, setAdminId] = useState<string | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const syncFromStorage = () => {
+      const isAdminPath = (pathname ?? "").startsWith("/admin");
+      if (isAdminPath) {
+        const admin = getCurrentAdmin();
+        setAdminId(admin?.username ?? null);
+        setUserEmail(null);
+        setPlanId(undefined);
+        return;
+      }
       const user = getCurrentUser();
       setUserEmail(user?.email ?? null);
-      setPlanText(getPlanLabel(user?.planId, user?.isUnlimited));
+      setPlanId(user?.planId);
+      setAdminId(null);
     };
 
     syncFromStorage();
@@ -30,44 +50,190 @@ export default function ClientTopBar() {
     };
   }, [pathname]);
 
-  if (!userEmail) return null;
+  useEffect(() => {
+    setUserMenuOpen(false);
+  }, [pathname, userEmail]);
 
-  const handleLogout = () => {
-    logout();
-    router.push("/login");
-  };
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setUserMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [userMenuOpen]);
+
+  const isAdminPath = (pathname ?? "").startsWith("/admin");
+
+  const barClass =
+    "sticky top-0 z-40 flex min-h-[46px] items-center justify-between gap-3 border-b border-stone-200 bg-white/90 px-4 py-2 text-sm text-stone-600 backdrop-blur sm:px-6";
+
+  const BrandButton = (
+    <button
+      type="button"
+      onClick={() => router.push("/")}
+      className="shrink-0 text-left text-sm font-semibold text-stone-800 hover:text-amber-700"
+    >
+      마트방송 시스템
+    </button>
+  );
+
+  if (isAdminPath) {
+    return (
+      <div className={barClass}>
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/admin")}
+            className="shrink-0 text-left text-sm font-semibold text-stone-800 hover:text-amber-700"
+          >
+            마트방송 관리자
+          </button>
+        </div>
+        {adminId ? (
+          <div className="flex items-center gap-2">
+            <span className="mr-1 text-sm">
+              로그인: <span className="font-medium text-stone-800">{adminId}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                logoutAdmin();
+                router.push("/admin/login");
+              }}
+              className="rounded-full border border-stone-300 px-3 py-1 text-sm font-medium text-stone-700 hover:border-amber-400 hover:text-amber-700"
+            >
+              로그아웃
+            </button>
+          </div>
+        ) : (
+          <div className="shrink-0" aria-hidden />
+        )}
+      </div>
+    );
+  }
 
   const handleGoPricing = () => {
     router.push("/pricing");
   };
 
+  if (!userEmail) {
+    const path = pathname ?? "";
+    const hideGuestAuthButtons = path === "/login" || path === "/signup";
+
+    return (
+      <div className={barClass}>
+        {BrandButton}
+        {!hideGuestAuthButtons ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => router.push("/login")}
+              className="rounded-full border border-stone-300 px-3 py-1 text-sm font-medium text-stone-700 hover:border-amber-400 hover:text-amber-700"
+            >
+              로그인
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/signup")}
+              className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-800 hover:bg-amber-100"
+            >
+              회원가입
+            </button>
+          </div>
+        ) : (
+          <span className="shrink-0" aria-hidden />
+        )}
+      </div>
+    );
+  }
+
+  const pricingCtaLabel = getPricingCtaLabel(planId);
+  const planText = getPlanLabel(planId, false);
+
   return (
-    <div className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b border-stone-200 bg-white/90 px-4 py-2 text-xs text-stone-600 backdrop-blur sm:px-6">
-      <div className="flex items-center gap-2">
-        <span className="hidden text-[11px] text-stone-500 sm:inline">
+    <div className={barClass}>
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+        {BrandButton}
+      </div>
+      <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
+        <span className="hidden text-sm text-stone-500 sm:inline sm:whitespace-nowrap">
           현재 플랜: <span className="font-medium text-stone-800">{planText}</span>
         </span>
         <button
           type="button"
           onClick={handleGoPricing}
-          className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[11px] font-medium text-amber-700 hover:bg-amber-100"
+          className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700 hover:bg-amber-100"
         >
-          플랜 구독 / 변경
+          {pricingCtaLabel}
         </button>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="mr-1 truncate max-w-[120px] text-[11px] sm:max-w-xs sm:text-xs">
-          로그인: <span className="font-medium text-stone-800">{userEmail}</span>
-        </span>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="rounded-full border border-stone-300 px-3 py-1 text-[11px] font-medium text-stone-700 hover:border-amber-400 hover:text-amber-700"
-        >
-          로그아웃
-        </button>
+        <div className="relative shrink-0" ref={userMenuRef}>
+          <button
+            type="button"
+            id="user-menu-trigger"
+            aria-label="사용자 메뉴"
+            aria-haspopup="menu"
+            aria-expanded={userMenuOpen}
+            aria-controls="user-menu-panel"
+            className={`inline-flex max-w-[min(220px,48vw)] min-w-[7.25rem] cursor-pointer items-center truncate rounded-full border border-stone-300 bg-white py-1 pl-3 pr-10 text-left text-sm font-medium text-stone-800 hover:border-amber-400 sm:max-w-[260px] ${SELECT_CHEVRON_TAILWIND}`}
+            onClick={() => setUserMenuOpen((o) => !o)}
+          >
+            {userEmail}
+          </button>
+          {userMenuOpen ? (
+            <div
+              id="user-menu-panel"
+              role="menu"
+              aria-labelledby="user-menu-trigger"
+              className="absolute right-0 top-[calc(100%+4px)] z-50 min-w-[11.5rem] overflow-hidden rounded-xl border border-stone-200 bg-white py-1 shadow-lg"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full px-3 py-2 text-left text-sm text-stone-800 hover:bg-stone-50"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  router.push("/account");
+                }}
+              >
+                정보 수정
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full px-3 py-2 text-left text-sm text-stone-800 hover:bg-stone-50"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  router.push("/subscription");
+                }}
+              >
+                구독 관리
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  logout();
+                  router.push("/login");
+                }}
+              >
+                로그아웃
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );
 }
-

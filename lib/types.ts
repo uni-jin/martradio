@@ -37,6 +37,8 @@ export interface Session {
   ttsProvider?: "azure" | "google";
   /** TTS 음성 설정 (방송별 저장) */
   ttsPresetId?: string;
+  /** Google 음성 템플릿 id (관리자 등록) */
+  ttsVoiceTemplateId?: string | null;
   voice?: string;
   ttsStyle?: string;
   ttsStyleDegree?: number;

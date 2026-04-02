@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
+import { getCurrentAdmin } from "@/lib/adminAuth";
 
-const PUBLIC_PATHS = ["/login", "/signup"];
+const PUBLIC_PATHS = ["/login", "/signup", "/admin/login"];
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -12,8 +13,21 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
+    const currentPath = pathname ?? "";
+
     // 로그인 페이지 등은 가드 없이 통과
-    if (PUBLIC_PATHS.includes(pathname ?? "")) {
+    if (PUBLIC_PATHS.includes(currentPath)) {
+      setChecked(true);
+      return;
+    }
+
+    const isAdminPath = currentPath.startsWith("/admin");
+    if (isAdminPath) {
+      const admin = getCurrentAdmin();
+      if (!admin) {
+        router.replace("/admin/login");
+        return;
+      }
       setChecked(true);
       return;
     }
@@ -23,6 +37,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       router.replace("/login");
       return;
     }
+
     setChecked(true);
   }, [pathname, router]);
 

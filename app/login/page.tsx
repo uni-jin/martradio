@@ -67,13 +67,12 @@ export default function LoginPage() {
               {loading ? "로그인 중..." : "로그인"}
             </button>
           </form>
-          <p className="mt-4 text-center text-xs text-stone-500">
-            아직 계정이 없다면{" "}
-            <Link href="/signup" className="font-medium text-amber-600 hover:underline">
-              회원가입
-            </Link>
-            을 먼저 진행해 주세요.
-          </p>
+          <Link
+            href="/signup"
+            className="mt-3 flex w-full items-center justify-center rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-medium text-stone-800 hover:bg-stone-50"
+          >
+            회원가입
+          </Link>
         </div>
       </div>
     </main>

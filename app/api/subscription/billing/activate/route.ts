@@ -1,0 +1,306 @@
+import { NextRequest, NextResponse } from "next/server";
+import {
+  deletePendingCheckout,
+  getSubscriptionBillingMethod,
+  getSubscriptionStatusByUser,
+  savePendingCheckout,
+  setScheduledPlanAfterCurrentPeriod,
+  setSubscriptionBillingMethod,
+  upsertSubscriptionAfterConfirm,
+} from "@/lib/subscriptionServerStore";
+import {
+  getPlanAmount,
+  getPlanOrderName,
+  isPaidPlanId,
+  isPaidPlanDowngrade,
+  isPaidPlanUpgrade,
+} from "@/lib/subscriptionPlans";
+import { computePaidPlanUpgradeChargeKrw } from "@/lib/subscriptionUpgrade";
+
+function getTossSecret(): string | null {
+  const key = process.env.TOSS_SECRET_KEY?.trim();
+  return key || null;
+}
+
+function newRecurringOrderId(userId: string): string {
+  return `rec_${userId}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+}
+
+async function chargeUpgradeOrInitialWithBillingKey(params: {
+  userId: string;
+  planId: "small" | "medium" | "large";
+  customerKey: string;
+  billingKey: string;
+  authHeader: string;
+}): Promise<
+  | { ok: true; paymentKey: string; orderId: string; amount: number; approvedAt: string; newBillingCycle: boolean }
+  | { ok: false; status: number; error: string }
+> {
+  const prev = getSubscriptionStatusByUser(params.userId);
+  const approvalIso = new Date().toISOString();
+  let amount = getPlanAmount(params.planId);
+  let newBillingCycle = false;
+  if (prev && prev.planId !== "free" && isPaidPlanUpgrade(prev.planId, params.planId)) {
+    newBillingCycle = true;
+    if (prev.currentPeriodStart && prev.currentPeriodEnd) {
+      const c = computePaidPlanUpgradeChargeKrw({
+        fromPlanId: prev.planId,
+        toPlanId: params.planId,
+        currentPeriodStartIso: prev.currentPeriodStart,
+        currentPeriodEndIso: prev.currentPeriodEnd,
+        approvalIso,
+      });
+      amount = c.chargeKrw;
+    }
+  }
+
+  const orderId = newRecurringOrderId(params.userId);
+  savePendingCheckout({
+    orderId,
+    userId: params.userId,
+    planId: params.planId,
+    amount,
+    createdAt: new Date().toISOString(),
+    newBillingCycle,
+  });
+
+  if (amount < 1) {
+    const approvedAt = approvalIso;
+    const noChargeKey = `upgrade_nocharge_${orderId}`;
+    upsertSubscriptionAfterConfirm({
+      userId: params.userId,
+      planId: params.planId,
+      paymentKey: noChargeKey,
+      orderId,
+      approvedAt,
+      newBillingCycle: true,
+    });
+    deletePendingCheckout(orderId);
+    return {
+      ok: true,
+      paymentKey: noChargeKey,
+      orderId,
+      amount: 0,
+      approvedAt,
+      newBillingCycle: true,
+    };
+  }
+
+  const billRes = await fetch(
+    `https://api.tosspayments.com/v1/billing/${encodeURIComponent(params.billingKey)}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: params.authHeader,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        customerKey: params.customerKey,
+        amount,
+        orderId,
+        orderName: getPlanOrderName(params.planId),
+      }),
+    }
+  );
+  const billData = await billRes.json().catch(() => ({}));
+  if (!billRes.ok || typeof billData.paymentKey !== "string" || !billData.paymentKey) {
+    deletePendingCheckout(orderId);
+    const msg =
+      typeof billData.message === "string" ? billData.message : "정기결제 승인에 실패했습니다.";
+    return { ok: false, status: billRes.status >= 500 ? 502 : billRes.status, error: msg };
+  }
+
+  const approvedAt =
+    typeof billData.approvedAt === "string" && billData.approvedAt
+      ? billData.approvedAt
+      : new Date().toISOString();
+  upsertSubscriptionAfterConfirm({
+    userId: params.userId,
+    planId: params.planId,
+    paymentKey: billData.paymentKey,
+    orderId: typeof billData.orderId === "string" ? billData.orderId : orderId,
+    approvedAt,
+    newBillingCycle,
+  });
+  deletePendingCheckout(orderId);
+
+  return {
+    ok: true,
+    paymentKey: billData.paymentKey,
+    orderId: typeof billData.orderId === "string" ? billData.orderId : orderId,
+    amount,
+    approvedAt,
+    newBillingCycle,
+  };
+}
+
+export async function POST(request: NextRequest) {
+  let body: {
+    userId?: unknown;
+    planId?: unknown;
+    customerKey?: unknown;
+    authKey?: unknown;
+    useExistingBilling?: unknown;
+  };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "JSON 본문이 필요합니다." }, { status: 400 });
+  }
+
+  if (typeof body.userId !== "string" || !body.userId.trim()) {
+    return NextResponse.json({ error: "userId가 필요합니다." }, { status: 400 });
+  }
+  if (!isPaidPlanId(body.planId)) {
+    return NextResponse.json({ error: "유료 플랜만 정기결제를 시작할 수 있습니다." }, { status: 400 });
+  }
+  const paidPlanId = body.planId;
+  if (typeof body.customerKey !== "string" || !body.customerKey.trim()) {
+    return NextResponse.json({ error: "customerKey가 필요합니다." }, { status: 400 });
+  }
+  const customerKey = body.customerKey.trim();
+  const authKey = typeof body.authKey === "string" ? body.authKey.trim() : "";
+  const useExistingBilling = body.useExistingBilling === true;
+  const userId = body.userId.trim();
+
+  const secret = getTossSecret();
+  if (!secret) {
+    return NextResponse.json({ error: "TOSS_SECRET_KEY가 설정되지 않았습니다." }, { status: 500 });
+  }
+  const authHeader = `Basic ${Buffer.from(`${secret}:`).toString("base64")}`;
+
+  if (useExistingBilling) {
+    const method = getSubscriptionBillingMethod(userId);
+    if (!method || method.customerKey !== customerKey) {
+      return NextResponse.json(
+        { error: "등록된 결제 수단이 없거나 customerKey가 일치하지 않습니다." },
+        { status: 400 }
+      );
+    }
+    const prev = getSubscriptionStatusByUser(userId);
+    if (!prev || prev.planId === "free") {
+      return NextResponse.json(
+        { error: "먼저 카드 등록을 위해 토스에서 카드 정보를 입력해 주세요." },
+        { status: 400 }
+      );
+    }
+    if (prev.planId === paidPlanId) {
+      return NextResponse.json({ error: "이미 해당 플랜입니다." }, { status: 400 });
+    }
+    if (isPaidPlanDowngrade(prev.planId, paidPlanId)) {
+      try {
+        const sub = setScheduledPlanAfterCurrentPeriod(userId, paidPlanId);
+        return NextResponse.json({
+          ok: true,
+          kind: "scheduled_downgrade",
+          amount: 0,
+          paymentKey: null,
+          orderId: null,
+          approvedAt: sub.updatedAt,
+          subscription: sub,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return NextResponse.json({ error: msg }, { status: 400 });
+      }
+    }
+    if (!isPaidPlanUpgrade(prev.planId, paidPlanId)) {
+      return NextResponse.json({ error: "지원하지 않는 플랜 변경입니다." }, { status: 400 });
+    }
+    const charged = await chargeUpgradeOrInitialWithBillingKey({
+      userId,
+      planId: paidPlanId,
+      customerKey: method.customerKey,
+      billingKey: method.billingKey,
+      authHeader,
+    });
+    if (!charged.ok) {
+      return NextResponse.json({ error: charged.error }, { status: charged.status });
+    }
+    const sub = getSubscriptionStatusByUser(userId);
+    return NextResponse.json({
+      ok: true,
+      kind: "upgrade",
+      paymentKey: charged.paymentKey,
+      orderId: charged.orderId,
+      amount: charged.amount,
+      approvedAt: charged.approvedAt,
+      subscription: sub,
+    });
+  }
+
+  if (!authKey) {
+    return NextResponse.json(
+      { error: "최초 카드 등록 시 authKey가 필요합니다. 기존 카드로 변경하려면 useExistingBilling: true를 보내세요." },
+      { status: 400 }
+    );
+  }
+
+  const issueRes = await fetch("https://api.tosspayments.com/v1/billing/authorizations/issue", {
+    method: "POST",
+    headers: {
+      Authorization: authHeader,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      customerKey,
+      authKey,
+    }),
+  });
+  const issueData = await issueRes.json().catch(() => ({}));
+  if (!issueRes.ok || typeof issueData.billingKey !== "string" || !issueData.billingKey) {
+    const msg =
+      typeof issueData.message === "string" ? issueData.message : "빌링키 발급에 실패했습니다.";
+    return NextResponse.json({ error: msg }, { status: issueRes.status >= 500 ? 502 : issueRes.status });
+  }
+
+  setSubscriptionBillingMethod({
+    userId,
+    customerKey,
+    billingKey: issueData.billingKey,
+  });
+
+  const prev = getSubscriptionStatusByUser(userId);
+  if (prev && prev.planId !== "free" && isPaidPlanDowngrade(prev.planId, paidPlanId)) {
+    try {
+      const sub = setScheduledPlanAfterCurrentPeriod(userId, paidPlanId);
+      return NextResponse.json({
+        ok: true,
+        kind: "scheduled_downgrade",
+        amount: 0,
+        paymentKey: null,
+        orderId: null,
+        approvedAt: sub.updatedAt,
+        subscription: sub,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+  }
+
+  if (prev && prev.planId !== "free" && prev.planId === paidPlanId) {
+    return NextResponse.json({ error: "이미 해당 플랜입니다." }, { status: 400 });
+  }
+
+  const charged = await chargeUpgradeOrInitialWithBillingKey({
+    userId,
+    planId: paidPlanId,
+    customerKey,
+    billingKey: issueData.billingKey,
+    authHeader,
+  });
+  if (!charged.ok) {
+    return NextResponse.json({ error: charged.error }, { status: charged.status });
+  }
+  const sub = getSubscriptionStatusByUser(userId);
+  return NextResponse.json({
+    ok: true,
+    kind: prev && prev.planId !== "free" && isPaidPlanUpgrade(prev.planId, paidPlanId) ? "upgrade" : "subscribe",
+    paymentKey: charged.paymentKey,
+    orderId: charged.orderId,
+    amount: charged.amount,
+    approvedAt: charged.approvedAt,
+    subscription: sub,
+  });
+}

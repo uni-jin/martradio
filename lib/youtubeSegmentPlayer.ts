@@ -36,16 +36,15 @@ export type YoutubeSegmentPlayer = {
   ready: boolean;
 };
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-type YTRaw = any;
-/* eslint-enable @typescript-eslint/no-explicit-any */
+type YTRaw = Record<string, unknown>;
 
 const YT_ENDED = 0;
 
 function safeCall(player: YTRaw | null, method: string, ...args: unknown[]) {
   if (!player) return;
-  if (typeof player[method] === "function") {
-    player[method](...args);
+  const fn = player[method];
+  if (typeof fn === "function") {
+    (fn as (...innerArgs: unknown[]) => void)(...args);
   }
 }
 
@@ -64,11 +63,16 @@ export function useYoutubeSegmentPlayer(
   onEndRef.current = onSegmentEnd;
   const isRestartingRef = useRef(false);
 
-  const { start, end } = resolveBgmSeconds(startSec, endSec);
+  const isFullPlayback = Boolean(videoId && startSec == null && endSec == null);
+  const { start, end } = isFullPlayback
+    ? { start: 0, end: 0 }
+    : resolveBgmSeconds(startSec, endSec);
   const startRef = useRef(start);
   const endRef = useRef(end);
   startRef.current = start;
   endRef.current = end;
+  const isFullPlaybackRef = useRef(isFullPlayback);
+  isFullPlaybackRef.current = isFullPlayback;
 
   const YT_PLAYING = 1;
 
@@ -126,6 +130,14 @@ export function useYoutubeSegmentPlayer(
     const p = instanceRef.current;
     if (!p || !videoId) return;
     isRestartingRef.current = true;
+    if (isFullPlaybackRef.current) {
+      if (typeof p.loadVideoById === "function") {
+        p.loadVideoById({ videoId });
+      } else {
+        safeCall(p, "playVideo");
+      }
+      return;
+    }
     const s = startRef.current;
     const e = endRef.current;
     if (typeof p.loadVideoById === "function") {

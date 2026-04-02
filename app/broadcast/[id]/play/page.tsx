@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { getSession, saveSession } from "@/lib/store";
 import { saveAudio, getAudioBlob, hasStoredAudio } from "@/lib/audioStorage";
 import {
   TTS_PRESETS,
-  GOOGLE_TTS_PRESETS,
   MANUAL_VOICES,
   MANUAL_STYLES,
   SPEED_PRESETS,
@@ -20,6 +19,10 @@ import {
 import type { SessionWithItems } from "@/lib/types";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
 import { extractYoutubeId } from "@/lib/utils";
+import { getVoiceTemplateById, getVoiceTemplatesUserFacing } from "@/lib/adminData";
+import { buildGoogleTtsSynthesizeBody } from "@/lib/ttsGoogleRequest";
+import { getCurrentUser } from "@/lib/auth";
+import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 export default function PlayBroadcastPage() {
   const params = useParams();
@@ -33,7 +36,7 @@ export default function PlayBroadcastPage() {
   const [repeatEnabled, setRepeatEnabled] = useState(false);
   const [ttsProvider, setTtsProvider] = useState<"azure" | "google">("google");
   const [presetId, setPresetId] = useState<string>(DEFAULT_TTS.presetId);
-  const [googlePresetId, setGooglePresetId] = useState<string>(GOOGLE_TTS_PRESETS[0].id);
+  const [googlePresetId, setGooglePresetId] = useState<string>("");
   const [speed, setSpeed] = useState<number>(DEFAULT_TTS.speed);
   const [ttsBreakSeconds, setTtsBreakSeconds] = useState<number>(DEFAULT_TTS.breakSeconds);
   const [manualVoice, setManualVoice] = useState<string>(MANUAL_VOICES[0].value);
@@ -43,6 +46,7 @@ export default function PlayBroadcastPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [bgmVolume, setBgmVolume] = useState(40);
+  const currentUser = useMemo(() => getCurrentUser(), []);
   const audioRef = useRef<HTMLAudioElement>(null);
   const blobUrlRef = useRef<string | null>(null);
   const repeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -50,6 +54,10 @@ export default function PlayBroadcastPage() {
   const onBgmEndRef = useRef<() => void>(() => {});
 
   const youtubeId = session?.bgmYoutubeUrl ? extractYoutubeId(session.bgmYoutubeUrl) : null;
+  const voiceTemplates = useMemo(
+    () => getVoiceTemplatesUserFacing(currentUser?.planId),
+    [currentUser]
+  );
   const hasBgm = Boolean(youtubeId);
   const { containerId, player: ytPlayer } = useYoutubeSegmentPlayer(
     hasBgm ? youtubeId : null,
@@ -81,8 +89,15 @@ export default function PlayBroadcastPage() {
       // 저장된 값이 명시적으로 azure일 때만 Azure, 그 외(undefined 포함)는 Google 기본
       setTtsProvider(s.ttsProvider === "azure" ? "azure" : "google");
       if (s.ttsProvider === "google") {
-        const gp = GOOGLE_TTS_PRESETS.find((p) => p.voice === s.voice) ?? GOOGLE_TTS_PRESETS[0];
-        setGooglePresetId(gp.id);
+        const list = voiceTemplates;
+        if (s.ttsVoiceTemplateId) {
+          const t = list.find((x) => x.id === s.ttsVoiceTemplateId);
+          if (t) setGooglePresetId(t.id);
+          else if (list[0]) setGooglePresetId(list[0].id);
+        } else if (s.voice) {
+          const gp = list.find((p) => p.voice === s.voice) ?? list[0];
+          if (gp) setGooglePresetId(gp.id);
+        } else if (list[0]) setGooglePresetId(list[0].id);
       } else if (s.ttsPresetId === "manual") {
         setPresetId("manual");
         if (s.voice) setManualVoice(s.voice);
@@ -137,13 +152,23 @@ export default function PlayBroadcastPage() {
 
     try {
       if (ttsProvider === "google") {
-        const gp = GOOGLE_TTS_PRESETS.find((p) => p.id === googlePresetId) ?? GOOGLE_TTS_PRESETS[0];
+        const list = voiceTemplates;
+        const gp = list.find((p) => p.id === googlePresetId) ?? list[0];
+        if (!gp) {
+          throw new Error("사용 가능한 음성 템플릿이 없습니다.");
+        }
+        const synth = buildGoogleTtsSynthesizeBody(session.generatedText, gp, speed, ttsBreakSeconds);
         const body: Record<string, unknown> = {
-          text: session.generatedText,
-          voice: gp.voice,
-          rate: rateStr,
-          breakSeconds: ttsBreakSeconds,
+          text: synth.text,
+          voice: synth.voice,
+          languageCode: synth.languageCode,
+          speakingRate: synth.speakingRate,
+          pitch: synth.pitch,
+          volumeGainDb: synth.volumeGainDb,
+          breakSeconds: synth.breakSeconds,
         };
+        if (synth.sampleRateHertz != null) body.sampleRateHertz = synth.sampleRateHertz;
+        if (synth.effectsProfileId?.length) body.effectsProfileId = synth.effectsProfileId;
 
         const res = await fetch("/api/tts-google", {
           method: "POST",
@@ -162,6 +187,7 @@ export default function PlayBroadcastPage() {
           lastGeneratedAt: now,
           updatedAt: now,
           ttsProvider: "google" as const,
+          ttsVoiceTemplateId: gp.id,
           voice: gp.voice,
           ttsRate: rateStr,
           ttsBreakSeconds,
@@ -352,7 +378,7 @@ export default function PlayBroadcastPage() {
             {ttsProvider === "google" ? (
               <div className="mt-3">
                 <div className="mt-1.5 flex flex-wrap gap-2">
-                  {GOOGLE_TTS_PRESETS.map((p) => (
+                  {voiceTemplates.map((p) => (
                     <label key={p.id} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-2 text-sm has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
                       <input
                         type="radio"
@@ -397,7 +423,7 @@ export default function PlayBroadcastPage() {
                     <select
                       value={manualVoice}
                       onChange={(e) => setManualVoice(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                      className={`mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 pr-10 text-sm text-stone-800 ${SELECT_CHEVRON_TAILWIND}`}
                     >
                       {MANUAL_VOICES.map((v) => (
                         <option key={v.value} value={v.value}>{v.label}</option>
@@ -409,7 +435,7 @@ export default function PlayBroadcastPage() {
                     <select
                       value={manualStyle}
                       onChange={(e) => setManualStyle(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                      className={`mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 pr-10 text-sm text-stone-800 ${SELECT_CHEVRON_TAILWIND}`}
                     >
                       {MANUAL_STYLES.map((s) => (
                         <option key={s.value} value={s.value}>{s.label}</option>
@@ -519,7 +545,9 @@ export default function PlayBroadcastPage() {
               <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5">
                 <li>제공자: {session?.ttsProvider === "google" ? "Google (Chirp 3 HD)" : "Azure"}</li>
                 <li>프리셋: {session?.ttsProvider === "google"
-                  ? (GOOGLE_TTS_PRESETS.find((p) => p.voice === session?.voice)?.label ?? "—")
+                  ? (session.ttsVoiceTemplateId
+                      ? (getVoiceTemplateById(session.ttsVoiceTemplateId)?.label ?? "—")
+                      : voiceTemplates.find((p) => p.voice === session?.voice)?.label ?? "—")
                   : session?.ttsPresetId === "manual"
                     ? "수동 설정"
                     : TTS_PRESETS.find((p) => {

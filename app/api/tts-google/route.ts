@@ -1,70 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleAuth } from "google-auth-library";
+import { getGoogleTtsAccessToken } from "@/lib/googleTtsAuth";
+import { buildMarkupWithBreaks } from "@/lib/ttsGoogleRequest";
+import { ratePercentStringToSpeakingRate } from "@/lib/ttsOptions";
 
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
 
 /** Chirp 3 HD 한국어 보이스 (무료 100만 글자/월). 문서: https://cloud.google.com/text-to-speech/docs/chirp3-hd */
 const DEFAULT_VOICE = "ko-KR-Chirp3-HD-Charon";
 
-/** rate 퍼센트(예: +10%) → Google speakingRate (0.25~4.0) */
-function ratePercentToSpeakingRate(rate: string | undefined): number {
-  if (!rate) return 1;
-  const n = parseInt(rate.replace(/%|\+/g, ""), 10);
-  if (Number.isNaN(n)) return 1;
-  return 1 + n / 100;
-}
-
-/** 줄 단위 텍스트에 쉼 적용: 줄 사이에 [pause short] 삽입 (Chirp 3 HD markup) */
-function buildMarkupWithBreaks(text: string, breakSeconds: number): string {
-  const lines = text
-    .trim()
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (lines.length === 0) return "";
-  if (lines.length === 1) return lines[0];
-  const tag = breakSeconds > 1 ? "[pause long]" : "[pause short]";
-  return lines.join(` ${tag} `);
-}
-
-async function getAccessToken(): Promise<string> {
-  const jsonPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const jsonStr = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-
-  if (jsonStr) {
-    try {
-      const key = JSON.parse(jsonStr) as Record<string, unknown>;
-      const auth = new GoogleAuth({
-        credentials: key,
-        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-      });
-      const client = await auth.getClient();
-      const token = await client.getAccessToken();
-      if (token.token) return token.token;
-    } catch (e) {
-      throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON 파싱 실패: " + (e instanceof Error ? e.message : String(e)));
-    }
-  }
-
-  if (jsonPath) {
-    const auth = new GoogleAuth({
-      keyFile: jsonPath,
-      scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-    });
-    const client = await auth.getClient();
-    const token = await client.getAccessToken();
-    if (token.token) return token.token;
-  }
-
-  throw new Error("Google TTS 인증 정보가 없습니다. GOOGLE_APPLICATION_CREDENTIALS 또는 GOOGLE_SERVICE_ACCOUNT_JSON을 .env.local에 설정하세요.");
-}
-
 export async function POST(request: NextRequest) {
   let body: {
     text?: string;
     voice?: string;
+    languageCode?: string;
+    /** 최종 말하기 속도 (0.25~4). 새 클라이언트가 보냄 */
+    speakingRate?: number;
+    /** 레거시: rate 퍼센트 문자열 — speakingRate 없을 때만 사용 */
     rate?: string;
     breakSeconds?: number;
+    pitch?: number;
+    volumeGainDb?: number;
+    sampleRateHertz?: number | null;
+    effectsProfileId?: string[] | null;
   };
   try {
     body = await request.json();
@@ -78,25 +35,67 @@ export async function POST(request: NextRequest) {
   }
 
   const voiceName = typeof body.voice === "string" && body.voice ? body.voice : DEFAULT_VOICE;
-  const speakingRate = ratePercentToSpeakingRate(body.rate);
+  const languageCode =
+    typeof body.languageCode === "string" && body.languageCode.trim()
+      ? body.languageCode.trim()
+      : "ko-KR";
+
+  let speakingRate: number;
+  if (typeof body.speakingRate === "number" && Number.isFinite(body.speakingRate)) {
+    speakingRate = Math.min(4, Math.max(0.25, body.speakingRate));
+  } else {
+    speakingRate = ratePercentStringToSpeakingRate(body.rate);
+    speakingRate = Math.min(4, Math.max(0.25, speakingRate));
+  }
+
+  const pitch =
+    typeof body.pitch === "number" && Number.isFinite(body.pitch)
+      ? Math.min(20, Math.max(-20, body.pitch))
+      : 0;
+
+  const volumeGainDb =
+    typeof body.volumeGainDb === "number" && Number.isFinite(body.volumeGainDb)
+      ? Math.min(16, Math.max(-96, body.volumeGainDb))
+      : 0;
+
   const breakSeconds = typeof body.breakSeconds === "number" ? body.breakSeconds : 0.5;
   const inputText = buildMarkupWithBreaks(text, breakSeconds);
 
+  const sampleRateHertz =
+    typeof body.sampleRateHertz === "number" && Number.isFinite(body.sampleRateHertz) && body.sampleRateHertz > 0
+      ? body.sampleRateHertz
+      : undefined;
+
+  const effectsProfileId =
+    Array.isArray(body.effectsProfileId) && body.effectsProfileId.length > 0
+      ? body.effectsProfileId.filter((x): x is string => typeof x === "string" && x.length > 0)
+      : undefined;
+
   let accessToken: string;
   try {
-    accessToken = await getAccessToken();
+    accessToken = await getGoogleTtsAccessToken();
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: message }, { status: 503 });
   }
 
+  const audioConfig: Record<string, unknown> = {
+    audioEncoding: "MP3" as const,
+    speakingRate,
+    pitch,
+    volumeGainDb,
+  };
+  if (sampleRateHertz) {
+    audioConfig.sampleRateHertz = sampleRateHertz;
+  }
+  if (effectsProfileId?.length) {
+    audioConfig.effectsProfileId = effectsProfileId;
+  }
+
   const payload = {
     input: { markup: inputText },
-    voice: { languageCode: "ko-KR", name: voiceName },
-    audioConfig: {
-      audioEncoding: "MP3" as const,
-      speakingRate,
-    },
+    voice: { languageCode, name: voiceName },
+    audioConfig,
   };
 
   try {
@@ -134,9 +133,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json(
-      { error: `TTS 요청 실패: ${message}` },
-      { status: 502 }
-    );
+    return NextResponse.json({ error: `TTS 요청 실패: ${message}` }, { status: 502 });
   }
 }

@@ -51,6 +51,14 @@ export function ratePercentToSpeed(rate: string | undefined): number {
   return 1 + n / 100;
 }
 
+/** "+10%" / "-20%" 등 → Google `speakingRate`에 대응하는 계수 (대략 0.25~4 구간에서 사용) */
+export function ratePercentStringToSpeakingRate(rate: string | undefined): number {
+  if (!rate) return 1;
+  const n = parseInt(rate.replace(/%|\+/g, ""), 10);
+  if (Number.isNaN(n)) return 1;
+  return 1 + n / 100;
+}
+
 export const DEFAULT_TTS = {
   presetId: "bright_male" as const,
   speed: DEFAULT_SPEED,
