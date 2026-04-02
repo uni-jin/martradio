@@ -87,39 +87,48 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
     };
   }
 
-  const billRes = await fetch(
-    `https://api.tosspayments.com/v1/billing/${encodeURIComponent(params.billingKey)}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: params.authHeader,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        customerKey: params.customerKey,
-        amount,
-        orderId,
-        orderName: getPlanOrderName(params.planId),
-      }),
-    }
-  );
-  const billData = await billRes.json().catch(() => ({}));
+  let billRes: Response;
+  let billData: unknown;
+  try {
+    billRes = await fetch(
+      `https://api.tosspayments.com/v1/billing/${encodeURIComponent(params.billingKey)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: params.authHeader,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerKey: params.customerKey,
+          amount,
+          orderId,
+          orderName: getPlanOrderName(params.planId),
+        }),
+      }
+    );
+    billData = await billRes.json().catch(() => ({}));
+  } catch (e) {
+    deletePendingCheckout(orderId);
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, status: 502, error: `토스 정기결제 승인 요청 실패: ${msg}` };
+  }
+  const typedBillData = billData as any;
   if (!billRes.ok || typeof billData.paymentKey !== "string" || !billData.paymentKey) {
     deletePendingCheckout(orderId);
     const msg =
-      typeof billData.message === "string" ? billData.message : "정기결제 승인에 실패했습니다.";
+      typeof typedBillData.message === "string" ? typedBillData.message : "정기결제 승인에 실패했습니다.";
     return { ok: false, status: billRes.status >= 500 ? 502 : billRes.status, error: msg };
   }
 
   const approvedAt =
-    typeof billData.approvedAt === "string" && billData.approvedAt
+    typeof typedBillData.approvedAt === "string" && typedBillData.approvedAt
       ? billData.approvedAt
       : new Date().toISOString();
   upsertSubscriptionAfterConfirm({
     userId: params.userId,
     planId: params.planId,
-    paymentKey: billData.paymentKey,
-    orderId: typeof billData.orderId === "string" ? billData.orderId : orderId,
+    paymentKey: typedBillData.paymentKey,
+    orderId: typeof typedBillData.orderId === "string" ? typedBillData.orderId : orderId,
     approvedAt,
     newBillingCycle,
   });
@@ -127,8 +136,8 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
 
   return {
     ok: true,
-    paymentKey: billData.paymentKey,
-    orderId: typeof billData.orderId === "string" ? billData.orderId : orderId,
+    paymentKey: typedBillData.paymentKey,
+    orderId: typeof typedBillData.orderId === "string" ? typedBillData.orderId : orderId,
     amount,
     approvedAt,
     newBillingCycle,
@@ -240,28 +249,36 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const issueRes = await fetch("https://api.tosspayments.com/v1/billing/authorizations/issue", {
-    method: "POST",
-    headers: {
-      Authorization: authHeader,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      customerKey,
-      authKey,
-    }),
-  });
-  const issueData = await issueRes.json().catch(() => ({}));
+  let issueRes: Response;
+  let issueData: unknown;
+  try {
+    issueRes = await fetch("https://api.tosspayments.com/v1/billing/authorizations/issue", {
+      method: "POST",
+      headers: {
+        Authorization: authHeader,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        customerKey,
+        authKey,
+      }),
+    });
+    issueData = await issueRes.json().catch(() => ({}));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: `토스 billing 인증 발급 요청 실패: ${msg}` }, { status: 502 });
+  }
+  const typedIssueData = issueData as any;
   if (!issueRes.ok || typeof issueData.billingKey !== "string" || !issueData.billingKey) {
     const msg =
-      typeof issueData.message === "string" ? issueData.message : "빌링키 발급에 실패했습니다.";
+      typeof typedIssueData.message === "string" ? typedIssueData.message : "빌링키 발급에 실패했습니다.";
     return NextResponse.json({ error: msg }, { status: issueRes.status >= 500 ? 502 : issueRes.status });
   }
 
   setSubscriptionBillingMethod({
     userId,
     customerKey,
-    billingKey: issueData.billingKey,
+    billingKey: typedIssueData.billingKey,
   });
 
   const prev = getSubscriptionStatusByUser(userId);
