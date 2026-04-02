@@ -95,7 +95,9 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           {
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            // YouTube iframe/위젯에서 일부 기능(compute-pressure)을 사용할 수 있어,
+            // 기본 deny로 인해 콘솔에 반복 경고가 뜨지 않도록 완화합니다.
+            value: "camera=(), microphone=(), geolocation=(), compute-pressure=*",
           },
           ...(isProd
             ? [
