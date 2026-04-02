@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import AdminShell from "@/app/_components/AdminShell";
-import { isNextBillingPlanChangeFromSubscriptionServer } from "@/lib/subscriptionUi";
 import {
   computeAdminDashboardStats,
   getAdminProducts,
@@ -83,42 +82,9 @@ function KpiCard({
 
 export default function AdminHomePage() {
   const [stats, setStats] = useState<AdminDashboardStats | null>(null);
-  const [planChangeReservationCount, setPlanChangeReservationCount] = useState<number | undefined>(
-    undefined
-  );
 
   useEffect(() => {
     setStats(computeAdminDashboardStats());
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/subscription/admin/subscriptions", { credentials: "include" });
-        const data = await res.json().catch(() => ({}));
-        if (cancelled || !res.ok || data?.ok !== true || !Array.isArray(data.subscriptions)) {
-          if (!cancelled) setPlanChangeReservationCount(0);
-          return;
-        }
-        let n = 0;
-        for (const raw of data.subscriptions as Record<string, unknown>[]) {
-          if (!raw || typeof raw !== "object") continue;
-          const sub = {
-            planId: typeof raw.planId === "string" ? raw.planId : "",
-            scheduledPlanAfterPeriod:
-              typeof raw.scheduledPlanAfterPeriod === "string" ? raw.scheduledPlanAfterPeriod : null,
-          };
-          if (isNextBillingPlanChangeFromSubscriptionServer(sub)) n++;
-        }
-        if (!cancelled) setPlanChangeReservationCount(n);
-      } catch {
-        if (!cancelled) setPlanChangeReservationCount(0);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const productNameById = useMemo(() => {
@@ -186,7 +152,7 @@ export default function AdminHomePage() {
         ) : (
           <>
             <section>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <KpiCard
                   label="전체/유료 회원"
                   value={`${stats.totalUsers.toLocaleString()} / ${stats.paidUsers.toLocaleString()}명`}
@@ -220,17 +186,6 @@ export default function AdminHomePage() {
                   value={`${stats.voicesEnabled}개`}
                   sub={`유료 전용 ${voicesPaidOnlyCount}개`}
                   href="/admin/voices"
-                />
-                <KpiCard
-                  label="플랜 변경 예약"
-                  value={
-                    planChangeReservationCount === undefined
-                      ? "…"
-                      : `${planChangeReservationCount.toLocaleString()}명`
-                  }
-                  sub="다음 자동결제에서 플랜이 바뀌는 유료 회원"
-                  href="/admin/users"
-                  variant="emerald"
                 />
               </div>
             </section>
