@@ -16,7 +16,7 @@ import {
   type PaidPlanId,
 } from "@/lib/subscriptionPlans";
 
-function isPaidPlanId(planId: string | null): planId is PaidPlanId {
+function isPaidPlanId(planId: string | null | undefined): planId is PaidPlanId {
   return planId === "small" || planId === "medium" || planId === "large";
 }
 
@@ -332,6 +332,7 @@ export default function PricingPage() {
 
   const modalHint = useMemo(() => {
     if (!pendingPlan || !effectivePaidPlanId) return null;
+    if (pendingPlan === "free") return null;
     if (pendingPlan === effectivePaidPlanId) return { kind: "same" as const };
     if (paidPlanTierRank(pendingPlan) > paidPlanTierRank(effectivePaidPlanId)) {
       let estimate: number | null = null;

@@ -58,7 +58,7 @@ export function useYoutubeSegmentPlayer(
   const containerIdRef = useRef("yt-seg-" + reactId.replace(/:/g, ""));
   const containerId = containerIdRef.current;
   const [ready, setReady] = useState(false);
-  const instanceRef = useRef<YTRaw>(null);
+  const instanceRef = useRef<YTRaw | null>(null);
   const onEndRef = useRef(onSegmentEnd);
   onEndRef.current = onSegmentEnd;
   const isRestartingRef = useRef(false);

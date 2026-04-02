@@ -20,14 +20,13 @@ function verifyWebhookSignature(rawBody: string, transmissionTime: string, signa
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => (part.startsWith("v1:") ? part.slice(3) : part))
-    .map((b64) => {
+    .flatMap((b64) => {
       try {
-        return Buffer.from(b64, "base64");
+        return [Buffer.from(b64, "base64")];
       } catch {
-        return null;
+        return [];
       }
-    })
-    .filter((buf): buf is Buffer => buf !== null);
+    });
 
   return candidates.some((cand) => cand.length === expected.length && timingSafeEqual(cand, expected));
 }
