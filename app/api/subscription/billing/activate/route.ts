@@ -113,7 +113,7 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
     return { ok: false, status: 502, error: `토스 정기결제 승인 요청 실패: ${msg}` };
   }
   const typedBillData = billData as any;
-  if (!billRes.ok || typeof billData.paymentKey !== "string" || !billData.paymentKey) {
+  if (!billRes.ok || typeof typedBillData.paymentKey !== "string" || !typedBillData.paymentKey) {
     deletePendingCheckout(orderId);
     const msg =
       typeof typedBillData.message === "string" ? typedBillData.message : "정기결제 승인에 실패했습니다.";
@@ -122,7 +122,7 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
 
   const approvedAt =
     typeof typedBillData.approvedAt === "string" && typedBillData.approvedAt
-      ? billData.approvedAt
+      ? typedBillData.approvedAt
       : new Date().toISOString();
   upsertSubscriptionAfterConfirm({
     userId: params.userId,
@@ -269,7 +269,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `토스 billing 인증 발급 요청 실패: ${msg}` }, { status: 502 });
   }
   const typedIssueData = issueData as any;
-  if (!issueRes.ok || typeof issueData.billingKey !== "string" || !issueData.billingKey) {
+  if (!issueRes.ok || typeof typedIssueData.billingKey !== "string" || !typedIssueData.billingKey) {
     const msg =
       typeof typedIssueData.message === "string" ? typedIssueData.message : "빌링키 발급에 실패했습니다.";
     return NextResponse.json({ error: msg }, { status: issueRes.status >= 500 ? 502 : issueRes.status });
@@ -308,7 +308,7 @@ export async function POST(request: NextRequest) {
     userId,
     planId: paidPlanId,
     customerKey,
-    billingKey: issueData.billingKey,
+    billingKey: typedIssueData.billingKey,
     authHeader,
   });
   if (!charged.ok) {
