@@ -293,8 +293,13 @@ export default function NewBroadcastPage() {
         if (hasBgm && ytPlayer.ready) {
           if (musicMode === "background") {
             phaseRef.current = "tts";
-            ytPlayer.setVolume(bgmVolume);
-            ytPlayer.playSegment();
+            try {
+              ytPlayer.setVolume(bgmVolume);
+              ytPlayer.playSegment();
+            } catch (e) {
+              // BGM(유튜브) 쪽 실패가 발생해도 TTS 오디오는 재생되도록 한다.
+              console.warn("ytPlayer.playSegment failed:", e);
+            }
 
             audioRef.current.onended = async () => {
               if (playbackGenRef.current !== gen) return;
@@ -323,8 +328,12 @@ export default function NewBroadcastPage() {
                 return;
               }
               phaseRef.current = "bgm";
-              ytPlayer.setVolume(bgmVolume);
-              ytPlayer.playSegment();
+              try {
+                ytPlayer.setVolume(bgmVolume);
+                ytPlayer.playSegment();
+              } catch (e) {
+                console.warn("ytPlayer.playSegment failed:", e);
+              }
             };
           }
         } else {
