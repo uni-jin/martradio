@@ -50,8 +50,11 @@ export default function PlayBroadcastPage() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const blobUrlRef = useRef<string | null>(null);
   const repeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loopBackRef = useRef<(() => void) | null>(null);
   const onBgmEndRef = useRef<() => void>(() => {});
+  const playbackStateRef = useRef<"playing" | "paused" | "idle">("idle");
+  const musicModeRef = useRef<"background" | "interval">("interval");
+  const phaseRef = useRef<"idle" | "tts" | "bgm">("idle");
+  const scheduleRepeatRef = useRef<() => void>(() => {});
 
   const youtubeId = session?.bgmYoutubeUrl ? extractYoutubeId(session.bgmYoutubeUrl) : null;
   const voiceTemplates = useMemo(
@@ -68,23 +71,24 @@ export default function PlayBroadcastPage() {
 
   useEffect(() => {
     onBgmEndRef.current = () => {
-      const el = audioRef.current;
-      if (!el) return;
-      loopBackRef.current = () => {
-        ytPlayer.setVolume(bgmVolume);
-        ytPlayer.playSegment();
-      };
-      el.onended = () => loopBackRef.current?.();
-      el.currentTime = 0;
-      el.play().catch(() => setIsPlaying(false));
+      // 중간음악(interval)에서는 "음악 구간 종료"가 한 사이클 종료 지점이다.
+      if (playbackStateRef.current !== "playing") return;
+      if (musicModeRef.current !== "interval") return;
+      if (phaseRef.current !== "bgm") return;
+
+      phaseRef.current = "idle";
+      setIsPlaying(false);
+      playbackStateRef.current = "idle";
+      scheduleRepeatRef.current();
     };
-  }, [ytPlayer, bgmVolume]);
+  }, []);
 
   useEffect(() => {
     if (!id) return;
     const s = getSession(id);
     setSession(s ?? null);
     if (s) {
+      musicModeRef.current = s.musicMode === "background" ? "background" : "interval";
       setRepeatMinutes(s.repeatMinutes);
       // 저장된 값이 명시적으로 azure일 때만 Azure, 그 외(undefined 포함)는 Google 기본
       setTtsProvider(s.ttsProvider === "azure" ? "azure" : "google");
@@ -133,9 +137,21 @@ export default function PlayBroadcastPage() {
     if (!repeatEnabled || repeatMinutes < 1) return;
     repeatTimerRef.current = setTimeout(() => {
       repeatTimerRef.current = null;
-      audioRef.current?.play().catch(() => {});
+      // 반복 재생 시작
+      playbackStateRef.current = "playing";
+      phaseRef.current = "tts";
+      setIsPlaying(true);
+      if (musicModeRef.current === "background" && hasBgm && ytPlayer.ready) {
+        ytPlayer.setVolume(bgmVolume);
+        ytPlayer.playSegment();
+      }
+      audioRef.current?.play().catch(() => setIsPlaying(false));
     }, repeatMinutes * 60 * 1000);
-  }, [repeatEnabled, repeatMinutes]);
+  }, [repeatEnabled, repeatMinutes, hasBgm, ytPlayer, bgmVolume]);
+
+  useEffect(() => {
+    scheduleRepeatRef.current = scheduleRepeat;
+  }, [scheduleRepeat]);
 
   useEffect(() => {
     return () => {
@@ -255,25 +271,56 @@ export default function PlayBroadcastPage() {
   const play = useCallback(async () => {
     if (!id || !audioRef.current) return;
     try {
+      if (repeatTimerRef.current) {
+        clearTimeout(repeatTimerRef.current);
+        repeatTimerRef.current = null;
+      }
+      playbackStateRef.current = "playing";
+      phaseRef.current = "tts";
+
       const blob = await getAudioBlob(id);
       if (!blob) return;
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = URL.createObjectURL(blob);
       audioRef.current.src = blobUrlRef.current;
-      if (hasBgm && ytPlayer.ready) {
-        loopBackRef.current = () => {
-          ytPlayer.setVolume(bgmVolume);
-          ytPlayer.playSegment();
-        };
-        audioRef.current.onended = () => loopBackRef.current?.();
-      } else {
-        audioRef.current.onended = () => {
+
+      const mode = musicModeRef.current;
+
+      audioRef.current.onended = () => {
+        if (playbackStateRef.current !== "playing") return;
+
+        if (!hasBgm || !ytPlayer.ready) {
+          phaseRef.current = "idle";
           setIsPlaying(false);
+          playbackStateRef.current = "idle";
           scheduleRepeat();
-        };
+          return;
+        }
+
+        if (mode === "background") {
+          // 배경음악: 음성이 끝나면 즉시 BGM도 끊는다.
+          phaseRef.current = "idle";
+          ytPlayer.stop();
+          setIsPlaying(false);
+          playbackStateRef.current = "idle";
+          scheduleRepeat();
+          return;
+        }
+
+        // 중간음악(interval): 음성 끝나면 BGM 재생 시작
+        phaseRef.current = "bgm";
+        ytPlayer.setVolume(bgmVolume);
+        ytPlayer.playSegment();
+      };
+
+      if (mode === "background" && hasBgm && ytPlayer.ready) {
+        ytPlayer.setVolume(bgmVolume);
+        ytPlayer.playSegment();
       }
+
       await audioRef.current.play();
       setIsPlaying(true);
+      playbackStateRef.current = "playing";
 
       const s = getSession(id);
       if (s) {
@@ -289,8 +336,17 @@ export default function PlayBroadcastPage() {
   }, [id, hasBgm, ytPlayer, bgmVolume, scheduleRepeat]);
 
   const pause = useCallback(() => {
-    audioRef.current?.pause();
-    if (hasBgm) ytPlayer.pause();
+    if (repeatTimerRef.current) {
+      clearTimeout(repeatTimerRef.current);
+      repeatTimerRef.current = null;
+    }
+    if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.pause();
+    }
+    if (hasBgm) ytPlayer.stop();
+    phaseRef.current = "idle";
+    playbackStateRef.current = "idle";
     setIsPlaying(false);
   }, [hasBgm, ytPlayer]);
 
@@ -299,9 +355,14 @@ export default function PlayBroadcastPage() {
       clearTimeout(repeatTimerRef.current);
       repeatTimerRef.current = null;
     }
-    audioRef.current?.pause();
-    if (audioRef.current) audioRef.current.currentTime = 0;
+    if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
     if (hasBgm) ytPlayer.stop();
+    phaseRef.current = "idle";
+    playbackStateRef.current = "idle";
     setIsPlaying(false);
   }, [hasBgm, ytPlayer]);
 
@@ -575,7 +636,7 @@ export default function PlayBroadcastPage() {
               <button
                 type="button"
                 onClick={isPlaying ? pause : play}
-                disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
+                disabled={!hasAudio}
                 className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-stone-800 text-white disabled:opacity-40"
                 aria-label={isPlaying ? "일시정지" : "재생"}
               >
@@ -584,7 +645,7 @@ export default function PlayBroadcastPage() {
               <button
                 type="button"
                 onClick={pause}
-                disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
+                disabled={!hasAudio}
                 className="rounded-lg border border-stone-300 px-4 py-2 text-sm disabled:opacity-40"
               >
                 ⏸ 일시정지
@@ -592,7 +653,7 @@ export default function PlayBroadcastPage() {
               <button
                 type="button"
                 onClick={stop}
-                disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
+                disabled={!hasAudio}
                 className="rounded-lg border border-stone-300 px-4 py-2 text-sm disabled:opacity-40"
               >
                 ⏹ 정지

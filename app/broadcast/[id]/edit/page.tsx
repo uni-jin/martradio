@@ -56,6 +56,7 @@ export default function EditBroadcastPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [speed, setSpeed] = useState<number>(DEFAULT_TTS.speed);
   const [googlePresetId, setGooglePresetId] = useState<string>("");
   const [ttsBreakSeconds, setTtsBreakSeconds] = useState<number>(DEFAULT_TTS.breakSeconds);
@@ -76,6 +77,7 @@ export default function EditBroadcastPage() {
   const repeatCountRef = useRef(3);
   const gapSecondsRef = useRef(0);
   const playbackGenRef = useRef(0);
+  const pausedAtRef = useRef(0);
   const cyclesCompletedRef = useRef(0);
   const activePlaybackGenRef = useRef(0);
 
@@ -135,6 +137,10 @@ export default function EditBroadcastPage() {
     const params = new URLSearchParams();
     params.set("enablejsapi", "1");
     params.set("rel", "0");
+    // 미리듣기 iframe은 실제 BGM 제어 대상이 아니므로 autoplay/소리를 강제로 차단한다.
+    params.set("autoplay", "0");
+    params.set("mute", "1");
+    params.set("controls", "0");
     if (bgmPlayRange === "segment") {
       const start = totalSecondsFromMinSec(bgmStartMin, bgmStartSec);
       const end = totalSecondsFromMinSec(bgmEndMin, bgmEndSec);
@@ -188,6 +194,7 @@ export default function EditBroadcastPage() {
       setTitle(s.title ?? "");
       setContent(s.generatedText ?? "");
       setBgmUrl(s.bgmYoutubeUrl ?? "");
+      setMusicMode(s.musicMode === "background" ? "background" : "interval");
       const bs = s.bgmStartSeconds;
       const be = s.bgmEndSeconds;
       if (bs != null && be != null && be > bs) {
@@ -285,6 +292,7 @@ export default function EditBroadcastPage() {
         lastPlayedAt: base?.lastPlayedAt ?? null,
         latestAudioUrl: base?.latestAudioUrl ?? null,
         generatedText: content,
+        musicMode,
         bgmYoutubeUrl: bgmUrl.trim() || null,
         bgmStartSeconds:
           bgmPlayRange === "segment"
@@ -319,7 +327,7 @@ export default function EditBroadcastPage() {
   }, []);
 
   const play = useCallback(
-    async (gen: number) => {
+    async (gen: number, startAtSeconds?: number) => {
       if (playbackGenRef.current !== gen) return;
       if (!audioRef.current) return;
       if (!sessionId) return;
@@ -334,12 +342,16 @@ export default function EditBroadcastPage() {
         blobUrlRef.current = URL.createObjectURL(blob);
         audioRef.current.src = blobUrlRef.current;
 
+        if (startAtSeconds != null && Number.isFinite(startAtSeconds) && startAtSeconds >= 0) {
+          audioRef.current.currentTime = startAtSeconds;
+        }
+
         if (hasBgm && ytPlayer.ready) {
           if (musicMode === "background") {
             phaseRef.current = "tts";
             try {
               ytPlayer.setVolume(bgmVolume);
-              ytPlayer.playSegment();
+              ytPlayer.playSegment(startAtSeconds);
             } catch (e) {
               // BGM(유튜브) 쪽이 막혀도 음성 재생은 계속 진행한다.
               console.warn("ytPlayer.playSegment failed:", e);
@@ -347,12 +359,18 @@ export default function EditBroadcastPage() {
             audioRef.current.onended = async () => {
               if (playbackGenRef.current !== gen) return;
               if (phaseRef.current !== "tts") return;
+              // 배경음악 모드에서는 음성(TTS)이 끝나는 즉시 BGM을 끊는다.
+              // (BGM 구간이 더 길어도 음성 길이에 맞춰 잘라야 한다.)
+              try {
+                ytPlayer.stop();
+              } catch (e) {
+                console.warn("ytPlayer.stop failed:", e);
+              }
               cyclesCompletedRef.current += 1;
               if (
                 !loopInfiniteRef.current &&
                 cyclesCompletedRef.current >= repeatCountRef.current
               ) {
-                ytPlayer.stop();
                 phaseRef.current = "idle";
                 setIsPlaying(false);
                 return;
@@ -401,6 +419,7 @@ export default function EditBroadcastPage() {
         await audioRef.current.play();
         if (playbackGenRef.current !== gen) return;
         setIsPlaying(true);
+        setIsPaused(false);
 
         const now = new Date().toISOString();
         setSessionBase((b) => {
@@ -429,22 +448,41 @@ export default function EditBroadcastPage() {
     playbackGenRef.current += 1;
     const gen = playbackGenRef.current;
     cyclesCompletedRef.current = 0;
-    void play(gen);
+    pausedAtRef.current = 0;
+    void play(gen, 0);
   }, [play]);
 
   const pause = useCallback(() => {
-    audioRef.current?.pause();
-    if (hasBgm) ytPlayer.pause();
-    setIsPlaying(false);
-  }, [hasBgm, ytPlayer]);
-
-  const stop = useCallback(() => {
     playbackGenRef.current += 1;
-    audioRef.current?.pause();
-    if (audioRef.current) audioRef.current.currentTime = 0;
+    if (audioRef.current) {
+      pausedAtRef.current = audioRef.current.currentTime || 0;
+      audioRef.current.onended = null;
+      audioRef.current.pause();
+    }
     if (hasBgm) ytPlayer.stop();
     phaseRef.current = "idle";
     setIsPlaying(false);
+    setIsPaused(true);
+  }, [hasBgm, ytPlayer]);
+
+  const resumePlayback = useCallback(() => {
+    playbackGenRef.current += 1;
+    const gen = playbackGenRef.current;
+    void play(gen, pausedAtRef.current);
+  }, [play]);
+
+  const stop = useCallback(() => {
+    playbackGenRef.current += 1;
+    if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    if (hasBgm) ytPlayer.stop();
+    phaseRef.current = "idle";
+    setIsPlaying(false);
+    setIsPaused(false);
+    pausedAtRef.current = 0;
   }, [hasBgm, ytPlayer]);
 
   useEffect(() => {
@@ -916,8 +954,8 @@ export default function EditBroadcastPage() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={isPlaying ? pause : beginPlayback}
-                  disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
+                  onClick={isPlaying ? pause : isPaused ? resumePlayback : beginPlayback}
+                  disabled={!hasAudio}
                   className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-stone-800 text-white disabled:opacity-40"
                   aria-label={isPlaying ? "일시정지" : "재생"}
                 >
@@ -926,7 +964,7 @@ export default function EditBroadcastPage() {
                 <button
                   type="button"
                   onClick={pause}
-                  disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
+                  disabled={!hasAudio}
                   className="rounded-lg border border-stone-300 px-4 py-2.5 text-base disabled:opacity-40"
                 >
                   ⏸ 일시정지
@@ -934,7 +972,7 @@ export default function EditBroadcastPage() {
                 <button
                   type="button"
                   onClick={stop}
-                  disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
+                  disabled={!hasAudio}
                   className="rounded-lg border border-stone-300 px-4 py-2.5 text-base disabled:opacity-40"
                 >
                   ⏹ 정지

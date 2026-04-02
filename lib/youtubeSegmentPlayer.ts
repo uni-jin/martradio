@@ -2,22 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback, useId } from "react";
 
-let youtubeLoadPromise: Promise<void> | null = null;
-
-export function loadYoutubeAPI(): Promise<void> {
-  if (typeof window === "undefined") return Promise.resolve();
-  if ((window as unknown as Record<string, unknown>).YT && typeof ((window as unknown as Record<string, unknown>).YT as Record<string, unknown>).Player === "function") return Promise.resolve();
-  if (youtubeLoadPromise) return youtubeLoadPromise;
-  youtubeLoadPromise = new Promise((resolve) => {
-    (window as unknown as Record<string, unknown>).onYouTubeIframeAPIReady = () => resolve();
-    const script = document.createElement("script");
-    script.src = "https://www.youtube.com/iframe_api";
-    script.async = true;
-    document.head.appendChild(script);
-  });
-  return youtubeLoadPromise;
-}
-
 export function resolveBgmSeconds(
   startSec: number | null | undefined,
   endSec: number | null | undefined
@@ -29,29 +13,17 @@ export function resolveBgmSeconds(
 }
 
 export type YoutubeSegmentPlayer = {
-  playSegment: () => void;
+  playSegment: (offsetSeconds?: number) => void;
   stop: () => void;
   pause: () => void;
   setVolume: (v: number) => void;
   ready: boolean;
 };
 
-type YTRaw = Record<string, unknown>;
-
-const YT_ENDED = 0;
-
-function safeCall(player: YTRaw | null, method: string, ...args: unknown[]) {
-  if (!player) return;
-  const fn = player[method];
-  if (typeof fn === "function") {
-    try {
-      (fn as (...innerArgs: unknown[]) => void)(...args);
-    } catch {
-      // YouTube iframe 내부에서 CSP/권한 문제 등으로 호출이 실패할 수 있다.
-      // 여기서 예외가 전파되면 전체 React 앱이 크래시될 수 있으므로 무시한다.
-    }
-  }
-}
+// NOTE:
+// YouTube Iframe API(YT.Player)는 일부 환경(특히 로컬 개발/프록시/확장)에서
+// postMessage origin mismatch로 제어(pause/stop/volume)가 깨지는 사례가 있다.
+// 이 프로젝트에서는 "JS API 없이 iframe src를 교체"하는 방식으로 재생을 제어한다.
 
 export function useYoutubeSegmentPlayer(
   videoId: string | null,
@@ -63,114 +35,102 @@ export function useYoutubeSegmentPlayer(
   const containerIdRef = useRef("yt-seg-" + reactId.replace(/:/g, ""));
   const containerId = containerIdRef.current;
   const [ready, setReady] = useState(false);
-  const instanceRef = useRef<YTRaw | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const onEndRef = useRef(onSegmentEnd);
   onEndRef.current = onSegmentEnd;
-  const isRestartingRef = useRef(false);
+  const endTimerRef = useRef<number | null>(null);
 
   const isFullPlayback = Boolean(videoId && startSec == null && endSec == null);
-  const { start, end } = isFullPlayback
-    ? { start: 0, end: 0 }
-    : resolveBgmSeconds(startSec, endSec);
-  const startRef = useRef(start);
-  const endRef = useRef(end);
-  startRef.current = start;
-  endRef.current = end;
-  const isFullPlaybackRef = useRef(isFullPlayback);
-  isFullPlaybackRef.current = isFullPlayback;
+  const { start, end } = isFullPlayback ? { start: 0, end: 0 } : resolveBgmSeconds(startSec, endSec);
 
-  const YT_PLAYING = 1;
+  const clearEndTimer = useCallback(() => {
+    if (endTimerRef.current != null) {
+      window.clearTimeout(endTimerRef.current);
+      endTimerRef.current = null;
+    }
+  }, []);
+
+  const destroyIframe = useCallback(() => {
+    clearEndTimer();
+    const iframe = iframeRef.current;
+    if (iframe) {
+      iframe.src = "about:blank";
+      iframe.remove();
+    }
+    iframeRef.current = null;
+  }, [clearEndTimer]);
 
   useEffect(() => {
-    if (!videoId || typeof window === "undefined") return;
-    let mounted = true;
-
-    loadYoutubeAPI().then(() => {
-      if (!mounted) return;
-      const el = document.getElementById(containerId);
-      if (!el) return;
-      const YTGlobal = (window as unknown as Record<string, unknown>).YT as Record<string, unknown> | undefined;
-      if (!YTGlobal || typeof YTGlobal.Player !== "function") return;
-
-      const PlayerCtor = YTGlobal.Player as new (id: string, opts: Record<string, unknown>) => YTRaw;
-      try {
-        new PlayerCtor(containerId, {
-          videoId,
-          width: 1,
-          height: 1,
-          playerVars: {
-            autoplay: 0,
-            controls: 0,
-          },
-          events: {
-            onReady(e: { target: YTRaw }) {
-              if (!mounted) return;
-              instanceRef.current = e.target;
-              setReady(true);
-            },
-            onStateChange(e: { data: number }) {
-              try {
-                if (e.data === YT_PLAYING) {
-                  isRestartingRef.current = false;
-                }
-                if (e.data === YT_ENDED && !isRestartingRef.current) {
-                  onEndRef.current();
-                }
-              } catch {
-                // onStateChange에서 발생하는 예외는 앱 크래시로 이어질 수 있으므로 무시한다.
-              }
-            },
-          },
-        });
-      } catch {
-        // Player 생성 실패 시에도 앱이 죽지 않도록 무시한다.
-      }
-    });
-
+    destroyIframe();
+    setReady(Boolean(videoId));
     return () => {
-      mounted = false;
-      const p = instanceRef.current;
-      if (p) {
-        safeCall(p, "stopVideo");
-        safeCall(p, "destroy");
-      }
-      instanceRef.current = null;
+      destroyIframe();
       setReady(false);
     };
-  }, [containerId, videoId]);
+  }, [videoId, destroyIframe]);
 
-  const playSegment = useCallback(() => {
-    const p = instanceRef.current;
-    if (!p || !videoId) return;
-    isRestartingRef.current = true;
-    if (isFullPlaybackRef.current) {
-      if (typeof p.loadVideoById === "function") {
-        p.loadVideoById({ videoId });
-      } else {
-        safeCall(p, "playVideo");
-      }
-      return;
+  const ensureIframe = useCallback((): HTMLIFrameElement | null => {
+    if (typeof window === "undefined") return null;
+    const host = document.getElementById(containerId);
+    if (!host) return null;
+    if (iframeRef.current && host.contains(iframeRef.current)) return iframeRef.current;
+
+    destroyIframe();
+
+    const iframe = document.createElement("iframe");
+    iframe.width = "1";
+    iframe.height = "1";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+    iframe.style.position = "absolute";
+    iframe.style.left = "-9999px";
+    iframe.style.top = "-9999px";
+    iframe.allow = "autoplay; encrypted-media";
+    iframe.title = "bgm";
+    host.appendChild(iframe);
+    iframeRef.current = iframe;
+    return iframe;
+  }, [containerId, destroyIframe]);
+
+  const playSegment = useCallback((offsetSeconds?: number) => {
+    if (!videoId) return;
+    const iframe = ensureIframe();
+    if (!iframe) return;
+
+    clearEndTimer();
+
+    const params = new URLSearchParams();
+    params.set("autoplay", "1");
+    params.set("controls", "0");
+    params.set("rel", "0");
+    params.set("playsinline", "1");
+    // JS API(enablejsapi)를 쓰지 않아 postMessage/origin 문제를 회피한다.
+    if (!isFullPlayback) {
+      const off = Math.max(0, Number(offsetSeconds) || 0);
+      const startAt = start + off;
+      const endAt = Math.max(end, startAt + 1);
+      params.set("start", String(Math.floor(startAt)));
+      params.set("end", String(Math.floor(endAt)));
+      const ms = Math.max(0, Math.floor((endAt - startAt) * 1000));
+      endTimerRef.current = window.setTimeout(() => {
+        onEndRef.current();
+      }, ms);
     }
-    const s = startRef.current;
-    const e = endRef.current;
-    if (typeof p.loadVideoById === "function") {
-      p.loadVideoById({ videoId, startSeconds: s, endSeconds: e });
-    } else {
-      safeCall(p, "playVideo");
-    }
-  }, [videoId]);
+
+    iframe.src = `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+  }, [videoId, ensureIframe, clearEndTimer, isFullPlayback, start, end]);
 
   const stop = useCallback(() => {
-    isRestartingRef.current = true;
-    safeCall(instanceRef.current, "stopVideo");
-  }, []);
+    destroyIframe();
+  }, [destroyIframe]);
 
   const pause = useCallback(() => {
-    safeCall(instanceRef.current, "pauseVideo");
-  }, []);
+    // iframe 기반에서는 pause 대신 stop으로 통일(확실히 끊기)
+    destroyIframe();
+  }, [destroyIframe]);
 
-  const setVolume = useCallback((v: number) => {
-    safeCall(instanceRef.current, "setVolume", Math.min(100, Math.max(0, v)));
+  const setVolume = useCallback((_v: number) => {
+    // iframe src 제어 방식에서는 볼륨 제어를 지원하지 않는다.
   }, []);
 
   return {

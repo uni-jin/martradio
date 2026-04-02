@@ -39,6 +39,7 @@ export default function NewBroadcastPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [speed, setSpeed] = useState<number>(DEFAULT_TTS.speed);
   const [googlePresetId, setGooglePresetId] = useState<string>("");
   const [ttsBreakSeconds, setTtsBreakSeconds] = useState<number>(DEFAULT_TTS.breakSeconds);
@@ -63,6 +64,7 @@ export default function NewBroadcastPage() {
   const gapSecondsRef = useRef<number>(0);
   /** 재생 세션마다 증가 — 정지 시 무효화해 대기 중 다음 사이클 취소 */
   const playbackGenRef = useRef(0);
+  const pausedAtRef = useRef(0);
   /** 이번 세션에서 완료한 방송 사이클 수 (beginPlayback 때 0) */
   const cyclesCompletedRef = useRef(0);
   const activePlaybackGenRef = useRef(0);
@@ -129,6 +131,10 @@ export default function NewBroadcastPage() {
     const params = new URLSearchParams();
     params.set("enablejsapi", "1");
     params.set("rel", "0");
+    // 미리듣기 iframe은 실제 BGM 제어 대상이 아니므로 autoplay/소리를 강제로 차단한다.
+    params.set("autoplay", "0");
+    params.set("mute", "1");
+    params.set("controls", "0");
     if (bgmPlayRange === "segment") {
       const start = totalSecondsFromMinSec(bgmStartMin, bgmStartSec);
       const end = totalSecondsFromMinSec(bgmEndMin, bgmEndSec);
@@ -237,6 +243,7 @@ export default function NewBroadcastPage() {
         lastPlayedAt: null,
         latestAudioUrl: null,
         generatedText: content,
+        musicMode,
         bgmYoutubeUrl: bgmUrl.trim() || null,
         bgmStartSeconds:
           bgmPlayRange === "segment"
@@ -271,7 +278,7 @@ export default function NewBroadcastPage() {
   }, []);
 
   const play = useCallback(
-    async (gen: number) => {
+    async (gen: number, startAtSeconds?: number) => {
       if (playbackGenRef.current !== gen) return;
       if (!audioRef.current) return;
       activePlaybackGenRef.current = gen;
@@ -290,12 +297,16 @@ export default function NewBroadcastPage() {
           if (playbackGenRef.current !== gen) return;
         }
 
+        if (startAtSeconds != null && Number.isFinite(startAtSeconds) && startAtSeconds >= 0) {
+          audioRef.current.currentTime = startAtSeconds;
+        }
+
         if (hasBgm && ytPlayer.ready) {
           if (musicMode === "background") {
             phaseRef.current = "tts";
             try {
               ytPlayer.setVolume(bgmVolume);
-              ytPlayer.playSegment();
+              ytPlayer.playSegment(startAtSeconds);
             } catch (e) {
               // BGM(유튜브) 쪽 실패가 발생해도 TTS 오디오는 재생되도록 한다.
               console.warn("ytPlayer.playSegment failed:", e);
@@ -304,12 +315,18 @@ export default function NewBroadcastPage() {
             audioRef.current.onended = async () => {
               if (playbackGenRef.current !== gen) return;
               if (phaseRef.current !== "tts") return;
+              // 배경음악 모드에서는 음성(TTS)이 끝나는 즉시 BGM을 끊는다.
+              // (BGM 구간이 더 길어도 음성 길이에 맞춰 잘라야 한다.)
+              try {
+                ytPlayer.stop();
+              } catch (e) {
+                console.warn("ytPlayer.stop failed:", e);
+              }
               cyclesCompletedRef.current += 1;
               if (
                 !loopInfiniteRef.current &&
                 cyclesCompletedRef.current >= repeatCountRef.current
               ) {
-                ytPlayer.stop();
                 phaseRef.current = "idle";
                 setIsPlaying(false);
                 return;
@@ -358,6 +375,7 @@ export default function NewBroadcastPage() {
         await audioRef.current.play();
         if (playbackGenRef.current !== gen) return;
         setIsPlaying(true);
+        setIsPaused(false);
       } catch (e) {
         if (playbackGenRef.current !== gen) return;
         phaseRef.current = "idle";
@@ -380,30 +398,44 @@ export default function NewBroadcastPage() {
     playbackGenRef.current += 1;
     const gen = playbackGenRef.current;
     cyclesCompletedRef.current = 0;
-    void play(gen);
+    pausedAtRef.current = 0;
+    void play(gen, 0);
   }, [play]);
 
   const pause = useCallback(() => {
+    // 일시정지: currentTime을 유지하고, 재생 루프(onended)만 끊는다.
+    playbackGenRef.current += 1;
     if (audioRef.current) {
+      pausedAtRef.current = audioRef.current.currentTime || 0;
+      audioRef.current.onended = null;
       audioRef.current.pause();
     }
-    if (hasBgm) {
-      ytPlayer.pause();
-    }
+    if (hasBgm) ytPlayer.stop();
+    phaseRef.current = "idle";
     setIsPlaying(false);
+    setIsPaused(true);
   }, [hasBgm, ytPlayer]);
+
+  const resumePlayback = useCallback(() => {
+    playbackGenRef.current += 1;
+    const gen = playbackGenRef.current;
+    void play(gen, pausedAtRef.current);
+  }, [play]);
 
   const stop = useCallback(() => {
     playbackGenRef.current += 1;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      audioRef.current.onended = null;
     }
     if (hasBgm) {
       ytPlayer.stop();
     }
     phaseRef.current = "idle";
     setIsPlaying(false);
+    setIsPaused(false);
+    pausedAtRef.current = 0;
   }, [hasBgm, ytPlayer]);
 
   const disabled = !title.trim() || !content.trim() || overLimit;
@@ -419,6 +451,8 @@ export default function NewBroadcastPage() {
     setTitle(session.title ?? "");
     setContent(session.generatedText ?? "");
     setBgmUrl(session.bgmYoutubeUrl ?? "");
+    // 저장된 모드가 없으면 예전 동작을 유지하기 위해 "interval"로 둔다.
+    setMusicMode(session.musicMode === "background" ? "background" : "interval");
     const s = session.bgmStartSeconds;
     const e = session.bgmEndSeconds;
     if (s != null && e != null && e > s) {
@@ -850,8 +884,8 @@ export default function NewBroadcastPage() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={isPlaying ? pause : beginPlayback}
-                  disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
+                  onClick={isPlaying ? pause : isPaused ? resumePlayback : beginPlayback}
+                  disabled={!hasAudio}
                   className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-stone-800 text-white disabled:opacity-40"
                   aria-label={isPlaying ? "일시정지" : "재생"}
                 >
@@ -860,7 +894,7 @@ export default function NewBroadcastPage() {
                 <button
                   type="button"
                   onClick={pause}
-                  disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
+                  disabled={!hasAudio}
                   className="rounded-lg border border-stone-300 px-4 py-2.5 text-base disabled:opacity-40"
                 >
                   ⏸ 일시정지
@@ -868,7 +902,7 @@ export default function NewBroadcastPage() {
                 <button
                   type="button"
                   onClick={stop}
-                  disabled={!hasAudio || (hasBgm && !ytPlayer.ready)}
+                  disabled={!hasAudio}
                   className="rounded-lg border border-stone-300 px-4 py-2.5 text-base disabled:opacity-40"
                 >
                   ⏹ 정지

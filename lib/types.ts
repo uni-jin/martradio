@@ -33,6 +33,8 @@ export interface Session {
   bgmYoutubeUrl?: string | null;
   bgmStartSeconds?: number | null;
   bgmEndSeconds?: number | null;
+  /** 음악 재생 모드: 배경음악(음성과 함께) 또는 중간음악(음성 뒤에) */
+  musicMode?: "background" | "interval" | null;
   /** TTS 제공자: azure | google. 없으면 azure */
   ttsProvider?: "azure" | "google";
   /** TTS 음성 설정 (방송별 저장) */
