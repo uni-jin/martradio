@@ -400,10 +400,17 @@ export default function EditBroadcastPage() {
           saveSession(updated, itemsRef.current, eventItemsRef.current);
           return updated;
         });
-      } catch {
+      } catch (e) {
         if (playbackGenRef.current !== gen) return;
         phaseRef.current = "idle";
-        setGenerateError("재생을 시작할 수 없습니다.");
+        const detail =
+          e instanceof DOMException
+            ? `${e.name}`
+            : e instanceof Error
+              ? e.message
+              : String(e);
+        console.error("audio.play() failed:", e);
+        setGenerateError(`재생을 시작할 수 없습니다. (${detail})`);
       }
     },
     [sessionId, hasBgm, ytPlayer, bgmVolume, musicMode, waitGap]

@@ -349,10 +349,19 @@ export default function NewBroadcastPage() {
         await audioRef.current.play();
         if (playbackGenRef.current !== gen) return;
         setIsPlaying(true);
-      } catch {
+      } catch (e) {
         if (playbackGenRef.current !== gen) return;
         phaseRef.current = "idle";
-        setGenerateError("재생을 시작할 수 없습니다.");
+        const detail =
+          e instanceof DOMException
+            ? `${e.name}`
+            : e instanceof Error
+              ? e.message
+              : String(e);
+        // 재생 실패 원인을 콘솔에 남겨 운영 환경에서도 확인 가능하게 한다.
+        // (UI에는 간단한 이름만 표시)
+        console.error("audio.play() failed:", e);
+        setGenerateError(`재생을 시작할 수 없습니다. (${detail})`);
       }
     },
     [sessionId, hasBgm, ytPlayer, bgmVolume, musicMode, waitGap]

@@ -283,7 +283,7 @@ export default function PlayBroadcastPage() {
           prev ? { ...prev, lastPlayedAt: now, updatedAt: now } : null
         );
       }
-    } catch {
+    } catch (e) {
       setGenerateError("재생을 시작할 수 없습니다.");
     }
   }, [id, hasBgm, ytPlayer, bgmVolume, scheduleRepeat]);
