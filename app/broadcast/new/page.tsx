@@ -213,6 +213,15 @@ export default function NewBroadcastPage() {
 
       const blob = await res.blob();
       await saveAudio(sessionId, blob);
+      // 음성 생성 직후 오브젝트 URL을 만들어 `audio`에 연결해두면,
+      // 재생 버튼 클릭 시 IndexedDB 조회(await)가 없어 autoplay 차단 케이스를 줄일 수 있습니다.
+      if (audioRef.current) {
+        if (blobUrlRef.current) {
+          URL.revokeObjectURL(blobUrlRef.current);
+        }
+        blobUrlRef.current = URL.createObjectURL(blob);
+        audioRef.current.src = blobUrlRef.current;
+      }
 
       const now = new Date().toISOString();
       const session: Session = {
@@ -268,15 +277,18 @@ export default function NewBroadcastPage() {
       activePlaybackGenRef.current = gen;
 
       try {
-        const blob = await getAudioBlob(sessionId);
-        if (!blob) return;
-        if (playbackGenRef.current !== gen) return;
-
-        if (blobUrlRef.current) {
-          URL.revokeObjectURL(blobUrlRef.current);
+        // 생성 직후 handleGenerate에서 blob URL을 세팅해뒀다면,
+        // 여기서는 IndexedDB await를 건너뛰고 바로 재생만 시도한다.
+        if (!blobUrlRef.current) {
+          const blob = await getAudioBlob(sessionId);
+          if (!blob) return;
+          if (playbackGenRef.current !== gen) return;
+          blobUrlRef.current = URL.createObjectURL(blob);
+          audioRef.current.src = blobUrlRef.current;
+        } else {
+          audioRef.current.src = blobUrlRef.current;
+          if (playbackGenRef.current !== gen) return;
         }
-        blobUrlRef.current = URL.createObjectURL(blob);
-        audioRef.current.src = blobUrlRef.current;
 
         if (hasBgm && ytPlayer.ready) {
           if (musicMode === "background") {

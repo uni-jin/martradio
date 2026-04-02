@@ -30,6 +30,7 @@ const contentSecurityPolicy = [
     "https://www.youtube.com",
     "https://www.gstatic.com",
     "https://t1.daumcdn.net",
+    "https://vercel.live",
     ...tossPaymentUiOrigins,
   ].join(" "),
   "style-src 'self' 'unsafe-inline'",
