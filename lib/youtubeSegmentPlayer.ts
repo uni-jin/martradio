@@ -44,7 +44,12 @@ function safeCall(player: YTRaw | null, method: string, ...args: unknown[]) {
   if (!player) return;
   const fn = player[method];
   if (typeof fn === "function") {
-    (fn as (...innerArgs: unknown[]) => void)(...args);
+    try {
+      (fn as (...innerArgs: unknown[]) => void)(...args);
+    } catch {
+      // YouTube iframe 내부에서 CSP/권한 문제 등으로 호출이 실패할 수 있다.
+      // 여기서 예외가 전파되면 전체 React 앱이 크래시될 수 있으므로 무시한다.
+    }
   }
 }
 
@@ -88,30 +93,38 @@ export function useYoutubeSegmentPlayer(
       if (!YTGlobal || typeof YTGlobal.Player !== "function") return;
 
       const PlayerCtor = YTGlobal.Player as new (id: string, opts: Record<string, unknown>) => YTRaw;
-      new PlayerCtor(containerId, {
-        videoId,
-        width: 1,
-        height: 1,
-        playerVars: {
-          autoplay: 0,
-          controls: 0,
-        },
-        events: {
-          onReady(e: { target: YTRaw }) {
-            if (!mounted) return;
-            instanceRef.current = e.target;
-            setReady(true);
+      try {
+        new PlayerCtor(containerId, {
+          videoId,
+          width: 1,
+          height: 1,
+          playerVars: {
+            autoplay: 0,
+            controls: 0,
           },
-          onStateChange(e: { data: number }) {
-            if (e.data === YT_PLAYING) {
-              isRestartingRef.current = false;
-            }
-            if (e.data === YT_ENDED && !isRestartingRef.current) {
-              onEndRef.current();
-            }
+          events: {
+            onReady(e: { target: YTRaw }) {
+              if (!mounted) return;
+              instanceRef.current = e.target;
+              setReady(true);
+            },
+            onStateChange(e: { data: number }) {
+              try {
+                if (e.data === YT_PLAYING) {
+                  isRestartingRef.current = false;
+                }
+                if (e.data === YT_ENDED && !isRestartingRef.current) {
+                  onEndRef.current();
+                }
+              } catch {
+                // onStateChange에서 발생하는 예외는 앱 크래시로 이어질 수 있으므로 무시한다.
+              }
+            },
           },
-        },
-      });
+        });
+      } catch {
+        // Player 생성 실패 시에도 앱이 죽지 않도록 무시한다.
+      }
     });
 
     return () => {
