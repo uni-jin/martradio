@@ -30,6 +30,7 @@ yarn-error.log*
 
 # 로컬 런타임 데이터·보안 감사 로그
 .martradio-data/security-audit.jsonl
+.martradio-data/subscription-server-store.json
 
 # typescript
 *.tsbuildinfo

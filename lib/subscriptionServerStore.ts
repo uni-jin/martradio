@@ -439,6 +439,28 @@ export function setScheduledPlanAfterCurrentPeriod(
   return migrateLegacySubscription(next);
 }
 
+/** 다음 결제일부터 적용 예정이던 하위 플랜 예약만 취소한다. */
+export function cancelScheduledPlanChange(userId: string): ServerSubscriptionStatus {
+  const prev = subscriptions.get(userId);
+  if (!prev) {
+    throw new Error("구독 정보를 찾을 수 없습니다.");
+  }
+  if (prev.planId !== "small" && prev.planId !== "medium" && prev.planId !== "large") {
+    throw new Error("활성 유료 구독이 없습니다.");
+  }
+  if (prev.scheduledPlanAfterPeriod == null) {
+    throw new Error("예약된 플랜 변경이 없습니다.");
+  }
+  const next: ServerSubscriptionStatus = {
+    ...prev,
+    scheduledPlanAfterPeriod: null,
+    updatedAt: new Date().toISOString(),
+  };
+  subscriptions.set(userId, next);
+  persistState();
+  return migrateLegacySubscription(next);
+}
+
 export function getSubscriptionStatusByUser(userId: string): ServerSubscriptionStatus | null {
   const row = subscriptions.get(userId);
   return row ? migrateLegacySubscription(row) : null;

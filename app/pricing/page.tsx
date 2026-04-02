@@ -85,6 +85,7 @@ export default function PricingPage() {
   const [serverLoaded, setServerLoaded] = useState(false);
   const [serverSubscription, setServerSubscription] = useState<ServerSubscriptionSnapshot>(null);
   const [hasBillingMethod, setHasBillingMethod] = useState(false);
+  const [isCancellingScheduled, setIsCancellingScheduled] = useState(false);
   const handledCheckoutRef = useRef(false);
 
   const refreshServerSubscription = useCallback(async () => {
@@ -112,6 +113,33 @@ export default function PricingPage() {
       setServerLoaded(true);
     }
   }, []);
+
+  const cancelScheduledReservation = useCallback(async (): Promise<boolean> => {
+    const user = getCurrentUser();
+    if (!user?.id) {
+      window.alert("로그인 정보를 찾을 수 없습니다.");
+      return false;
+    }
+    try {
+      const res = await fetch("/api/subscription/cancel-scheduled-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "예약 취소에 실패했습니다."
+        );
+      }
+      await refreshServerSubscription();
+      window.alert("플랜 변경 예약이 취소되었습니다. 다음 결제일에도 현재 플랜이 유지됩니다.");
+      return true;
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "예약 취소에 실패했습니다.");
+      return false;
+    }
+  }, [refreshServerSubscription]);
 
   useEffect(() => {
     const user = getCurrentUser();
@@ -326,6 +354,32 @@ export default function PricingPage() {
       setMessage("로그인 후 플랜을 선택할 수 있습니다.");
       return;
     }
+    if (isCancellingScheduled) return;
+
+    const scheduled = serverSubscription?.scheduledPlanAfterPeriod;
+    if (
+      planId === displayCurrentPlanId &&
+      typeof scheduled === "string" &&
+      isPaidPlanId(scheduled)
+    ) {
+      if (
+        !window.confirm(
+          `다음 결제일부터 ${getPlanLabel(scheduled, false)} 플랜으로 바뀌는 예약이 있습니다. 예약을 취소하고 현재 플랜을 유지할까요?`
+        )
+      ) {
+        return;
+      }
+      void (async () => {
+        setIsCancellingScheduled(true);
+        try {
+          await cancelScheduledReservation();
+        } finally {
+          setIsCancellingScheduled(false);
+        }
+      })();
+      return;
+    }
+
     setPendingPlan(planId);
     setMessage(null);
   };
@@ -370,6 +424,26 @@ export default function PricingPage() {
     const chosenPlan = pendingPlan;
 
     if (effectivePaidPlanId && chosenPlan === effectivePaidPlanId) {
+      const scheduled = serverSubscription?.scheduledPlanAfterPeriod;
+      if (typeof scheduled === "string" && isPaidPlanId(scheduled)) {
+        if (
+          !window.confirm(
+            `다음 결제일부터 ${getPlanLabel(scheduled, false)} 플랜으로 바뀌는 예약이 있습니다. 예약을 취소하고 현재 플랜을 유지할까요?`
+          )
+        ) {
+          return;
+        }
+        setIsProcessingCheckout(true);
+        try {
+          const ok = await cancelScheduledReservation();
+          if (ok) {
+            setPendingPlan(null);
+          }
+        } finally {
+          setIsProcessingCheckout(false);
+        }
+        return;
+      }
       window.alert("이미 해당 플랜을 이용 중입니다.");
       return;
     }
@@ -494,6 +568,25 @@ export default function PricingPage() {
     setPendingPlan(null);
   };
 
+  const handleCancelScheduledFromBanner = () => {
+    if (isCancellingScheduled) return;
+    if (
+      !window.confirm(
+        "다음 결제일부터 적용 예정이던 플랜 변경을 취소할까요?\n이번 이용 기간이 끝난 뒤에도 현재 플랜이 유지됩니다."
+      )
+    ) {
+      return;
+    }
+    void (async () => {
+      setIsCancellingScheduled(true);
+      try {
+        await cancelScheduledReservation();
+      } finally {
+        setIsCancellingScheduled(false);
+      }
+    })();
+  };
+
   const scheduledTargetId = serverSubscription?.scheduledPlanAfterPeriod;
   const scheduledTargetLabel =
     scheduledTargetId && isPaidPlanId(scheduledTargetId)
@@ -506,11 +599,21 @@ export default function PricingPage() {
         <h1 className="text-2xl font-bold text-stone-800">플랜 구독</h1>
 
         {scheduledTargetLabel && (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <p className="font-medium">다음 결제일부터 플랜 변경 예정</p>
-            <p className="mt-1 text-amber-800">
-              {scheduledTargetLabel} 플랜으로 갱신됩니다. 이번 이용 기간까지는 현재 플랜 혜택이 유지됩니다.
-            </p>
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-medium">다음 결제일부터 플랜 변경 예정</p>
+              <p className="mt-1 text-amber-800">
+                {scheduledTargetLabel} 플랜으로 갱신됩니다. 이번 이용 기간까지는 현재 플랜 혜택이 유지됩니다.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={isCancellingScheduled || !serverLoaded}
+              onClick={handleCancelScheduledFromBanner}
+              className="shrink-0 rounded-full border border-amber-400 bg-white px-4 py-2 text-xs font-medium text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50"
+            >
+              {isCancellingScheduled ? "처리 중..." : "플랜 변경 예약 취소"}
+            </button>
           </div>
         )}
 
@@ -562,8 +665,9 @@ export default function PricingPage() {
               <button
                 key={plan.id}
                 type="button"
+                disabled={isCancellingScheduled}
                 onClick={() => handleSelectPlan(plan.id)}
-                className={`block h-36 w-full text-left rounded-2xl border p-5 text-sm shadow-sm transition ${
+                className={`block h-36 w-full text-left rounded-2xl border p-5 text-sm shadow-sm transition disabled:opacity-60 ${
                   isCurrent
                     ? "border-amber-500 bg-amber-50"
                     : "border-stone-200 bg-white hover:border-amber-300 hover:bg-amber-50/40"
