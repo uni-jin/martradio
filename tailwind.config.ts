@@ -8,6 +8,12 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      colors: {
+        cta: {
+          DEFAULT: "var(--accent)",
+          hover: "var(--accent-hover)",
+        },
+      },
       fontFamily: {
         sans: ["var(--font-noto)", "system-ui", "sans-serif"],
       },
