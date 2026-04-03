@@ -2,6 +2,6 @@
 
 import { NewBroadcastScreen } from "@/app/_components/NewBroadcastScreen";
 
-export default function NewBroadcastPage() {
-  return <NewBroadcastScreen />;
+export default function DemoNewBroadcastPage() {
+  return <NewBroadcastScreen demoMode />;
 }

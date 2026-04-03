@@ -48,19 +48,19 @@ const MENUS: MenuGroup[] = [
     ],
   },
   {
-    title: "콘텐츠 관리",
-    items: [
-      { href: "/admin/templates", label: "방송 템플릿 관리" },
-      { href: "/admin/voices", label: "음성 템플릿 관리" },
-    ],
-  },
-  {
     title: "결제내역/통계",
     items: [
       { href: "/admin/payments", label: "결제 상세 내역" },
       { href: "/admin/referrer-payments", label: "추천인 결제 통계" },
     ],
     hiddenPathPrefixes: ["/admin/products", "/admin/webhooks/toss"],
+  },
+  {
+    title: "콘텐츠 관리",
+    items: [
+      { href: "/admin/templates", label: "방송 템플릿 관리" },
+      { href: "/admin/voices", label: "음성 템플릿 관리" },
+    ],
   },
 ];
 
@@ -85,7 +85,7 @@ export default function AdminShell({
   const activeGroup = MENUS.find((group) => groupMatchesPathname(group, pathname));
 
   return (
-    <main className="min-h-screen bg-[var(--bg)]">
+    <main className="min-h-full bg-[var(--bg)]">
       <div className="w-full border-t border-stone-200">
         <div className="grid w-full grid-cols-2 border-b border-stone-200 bg-white text-sm font-medium text-stone-700 sm:grid-cols-4">
           {MENUS.map((group) => {

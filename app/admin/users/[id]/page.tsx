@@ -118,6 +118,11 @@ export default function AdminUserDetailPage() {
     []
   );
 
+  const productPriceById = useMemo(
+    () => new Map(getAdminProducts().map((p) => [p.id, p.priceMonthly])),
+    []
+  );
+
   const inferredJoinedAt = useMemo(() => {
     if (!user) return null;
     if (typeof user.createdAt === "string" && user.createdAt.trim()) return user.createdAt;
@@ -218,7 +223,7 @@ export default function AdminUserDetailPage() {
                   <tr className="border-t border-stone-100">
                     <th className="bg-stone-50 px-3 py-2 text-left font-medium text-stone-600">전화번호</th>
                     <td className="px-3 py-2">{String(user.phone ?? "-")}</td>
-                    <th className="bg-stone-50 px-3 py-2 text-left font-medium text-stone-600">이용중 플랜</th>
+                    <th className="bg-stone-50 px-3 py-2 text-left font-medium text-stone-600">이용중 구독</th>
                     <td className="px-3 py-2">
                       {loadingSubscription ? (
                         "조회 중..."
@@ -287,8 +292,8 @@ export default function AdminUserDetailPage() {
                     <th className="px-3 py-2 text-left">No.</th>
                     <th className="px-3 py-2 text-left">결제 일시</th>
                     <th className="px-3 py-2 text-left">주문번호</th>
-                    <th className="px-3 py-2 text-left">플랜</th>
-                    <th className="px-3 py-2 text-left">플랜 만료일</th>
+                    <th className="px-3 py-2 text-left">구독</th>
+                    <th className="px-3 py-2 text-left">구독 만료일</th>
                     <th className="px-3 py-2 text-left">판매가</th>
                     <th className="px-3 py-2 text-left">결제 금액</th>
                   </tr>
@@ -297,22 +302,29 @@ export default function AdminUserDetailPage() {
                   {paymentRows
                     .slice()
                     .reverse()
-                    .map((p, idx) => (
-                      <tr key={p.id} className="border-t border-stone-100">
-                        <td className="px-3 py-2">{paymentRows.length - idx}</td>
-                        <td className="px-3 py-2">{new Date(p.paidAt).toLocaleString("ko-KR")}</td>
-                        <td className="px-3 py-2">{p.orderNo}</td>
-                        <td className="px-3 py-2">
-                          {productNameById.get(p.productId) ?? getPlanDisplayLabel(p.productId)}
-                        </td>
-                        <td className="px-3 py-2">{p.planExpiresLabel}</td>
-                        <td className="px-3 py-2">{p.amount.toLocaleString()}원</td>
-                        <td className="px-3 py-2">{p.amount.toLocaleString()}원</td>
-                      </tr>
-                    ))}
+                    .map((p, idx) => {
+                      const priceMonthly = productPriceById.get(p.productId);
+                      const salePriceLabel =
+                        typeof priceMonthly === "number" && Number.isFinite(priceMonthly)
+                          ? `${priceMonthly.toLocaleString()}원`
+                          : "—";
+                      return (
+                        <tr key={p.id} className="border-t border-stone-100">
+                          <td className="px-3 py-2">{paymentRows.length - idx}</td>
+                          <td className="px-3 py-2">{new Date(p.paidAt).toLocaleString("ko-KR")}</td>
+                          <td className="px-3 py-2">{p.orderNo}</td>
+                          <td className="px-3 py-2">
+                            {productNameById.get(p.productId) ?? getPlanDisplayLabel(p.productId)}
+                          </td>
+                          <td className="px-3 py-2">{p.planExpiresLabel}</td>
+                          <td className="px-3 py-2 tabular-nums">{salePriceLabel}</td>
+                          <td className="px-3 py-2 tabular-nums">{p.amount.toLocaleString()}원</td>
+                        </tr>
+                      );
+                    })}
                   {paymentRows.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-3 py-6 text-center text-stone-500">
+                      <td colSpan={7} className="px-3 py-6 text-center text-stone-500">
                         결제 내역이 없습니다.
                       </td>
                     </tr>

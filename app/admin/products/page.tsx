@@ -73,7 +73,7 @@ export default function AdminProductsPage() {
               </label>
             </div>
             <p className="mt-2 text-xs text-stone-500">
-              정책 필드: 플랜명 / 글자수 제한 / 월 요금 / 기존 방송 표시 개수 / 활성 여부
+              정책 필드: 구독명 / 글자수 제한 / 월 요금 / 기존 방송 표시 개수 / 활성 여부
             </p>
           </div>
         ))}

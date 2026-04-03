@@ -174,7 +174,7 @@ export default function AdminTemplatesPage() {
 
       {isModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-lg">
+          <div className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-lg">
             <h2 className="text-lg font-semibold text-stone-800">
               {editingId ? "방송 템플릿 수정" : "방송 템플릿 추가"}
             </h2>
@@ -228,7 +228,7 @@ export default function AdminTemplatesPage() {
 
       {pendingDeleteId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-lg">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-lg">
             <h2 className="text-lg font-semibold text-stone-800">삭제 확인</h2>
             <p className="mt-2 text-sm text-stone-700">이 템플릿을 삭제하시겠습니까?</p>
             <div className="mt-4 flex justify-end gap-2">

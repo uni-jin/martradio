@@ -129,47 +129,47 @@ export default function SignupPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[var(--bg)]">
-      <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-4">
+    <main className="min-h-full bg-[var(--bg)] py-8">
+      <div className="mx-auto w-full max-w-2xl px-4 sm:px-6">
         <div className="w-full rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
-          <h1 className="text-2xl font-bold text-stone-800">회원가입</h1>
+          <h1 className="text-3xl font-bold text-stone-800">회원가입</h1>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
-              <label className="text-sm text-stone-600">아이디 (필수)</label>
+              <label className="text-base text-stone-600">아이디 (필수)</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
                 placeholder="영문/숫자 아이디"
                 autoComplete="username"
               />
             </div>
             <div>
-              <label className="text-sm text-stone-600">이름 (필수)</label>
+              <label className="text-base text-stone-600">이름 (필수)</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
                 placeholder="예: 홍길동"
               />
             </div>
             <div>
-              <label className="text-sm text-stone-600">전화번호 (필수)</label>
+              <label className="text-base text-stone-600">전화번호 (필수)</label>
               <div className="mt-1 flex items-center gap-2">
                 <input
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                  className="w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
                   placeholder="예: 01012345678"
                 />
                 <button
                   type="button"
                   onClick={requestPhoneVerification}
-                  className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100"
+                  className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-base font-medium text-amber-700 hover:bg-amber-100"
                 >
                   인증요청
                 </button>
@@ -180,50 +180,50 @@ export default function SignupPage() {
                     type="text"
                     value={phoneCode}
                     onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                    className="w-28 rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                    className="w-28 rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
                     placeholder="4자리"
                   />
                   <button
                     type="button"
                     onClick={verifyPhoneCode}
-                    className="rounded-lg border border-stone-300 px-3 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50"
+                    className="rounded-lg border border-stone-300 px-3 py-2 text-base font-medium text-stone-700 hover:bg-stone-50"
                   >
                     인증확인
                   </button>
                 </div>
               )}
-              <p className={`mt-1 text-xs ${phoneVerified ? "text-green-600" : "text-stone-400"}`}>
+              <p className={`mt-1 text-sm ${phoneVerified ? "text-green-600" : "text-stone-400"}`}>
                 {phoneVerified ? "전화번호 인증이 완료되었습니다." : "인증 완료 후 회원가입이 가능합니다."}
               </p>
             </div>
             <div>
-              <label className="text-sm text-stone-600">비밀번호 (필수)</label>
+              <label className="text-base text-stone-600">비밀번호 (필수)</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
                 autoComplete="new-password"
               />
-              <p className="mt-1 text-xs text-stone-400">6자 이상으로 설정해 주세요.</p>
+              <p className="mt-1 text-sm text-stone-400">6자 이상으로 설정해 주세요.</p>
             </div>
             <div>
-              <label className="text-sm text-stone-600">비밀번호 확인 (필수)</label>
+              <label className="text-base text-stone-600">비밀번호 확인 (필수)</label>
               <input
                 type="password"
                 value={passwordConfirm}
                 onChange={(e) => setPasswordConfirm(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
                 autoComplete="new-password"
               />
             </div>
             <div>
-              <label className="text-sm text-stone-600">마트명 (필수)</label>
+              <label className="text-base text-stone-600">마트명 (필수)</label>
               <input
                 type="text"
                 value={martName}
                 onChange={(e) => setMartName(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
                 placeholder="예: 유니마트 본점"
               />
             </div>
@@ -234,7 +234,7 @@ export default function SignupPage() {
               onDetailChange={setMartAddressDetail}
             />
             <div>
-              <label htmlFor="referrer-menu-trigger" className="text-sm text-stone-600">
+              <label htmlFor="referrer-menu-trigger" className="text-base text-stone-600">
                 추천인 {requiresReferrerSelection ? "(필수)" : "(선택)"}
               </label>
               {requiresReferrerSelection ? (
@@ -246,7 +246,7 @@ export default function SignupPage() {
                     aria-haspopup="menu"
                     aria-expanded={referrerOpen}
                     aria-controls="referrer-menu-panel"
-                    className={`mt-1 inline-flex w-full cursor-pointer items-center rounded-lg border border-stone-200 bg-white py-2 pl-3 pr-10 text-left text-sm font-medium hover:border-stone-300 ${SELECT_CHEVRON_TAILWIND} ${referrerId === "" ? "text-stone-500" : "text-stone-800"}`}
+                    className={`mt-1 inline-flex w-full cursor-pointer items-center rounded-lg border border-stone-200 bg-white py-2.5 pl-3 pr-10 text-left text-base font-medium hover:border-stone-300 ${SELECT_CHEVRON_TAILWIND} ${referrerId === "" ? "text-stone-500" : "text-stone-800"}`}
                     onClick={() => setReferrerOpen((o) => !o)}
                   >
                     <span className="min-w-0 truncate">{referrerTriggerLabel}</span>
@@ -263,7 +263,7 @@ export default function SignupPage() {
                           key={option.id}
                           type="button"
                           role="menuitem"
-                          className={`flex w-full px-3 py-2 text-left text-sm text-stone-800 hover:bg-stone-50 ${option.id === referrerId ? "bg-amber-50 font-medium text-amber-900" : ""}`}
+                          className={`flex w-full px-3 py-2.5 text-left text-base text-stone-800 hover:bg-stone-50 ${option.id === referrerId ? "bg-amber-50 font-medium text-amber-900" : ""}`}
                           onClick={() => {
                             setReferrerId(option.id);
                             setReferrerOpen(false);
@@ -276,24 +276,24 @@ export default function SignupPage() {
                   ) : null}
                 </div>
               ) : (
-                <p className="mt-1 text-xs text-stone-500">
+                <p className="mt-1 text-sm text-stone-500">
                   현재 선택 가능한 활성 추천인이 없습니다. 추천인 없이 가입할 수 있습니다.
                 </p>
               )}
             </div>
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && <p className="text-base text-red-600">{error}</p>}
 
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 w-full rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
+              className="mt-2 w-full rounded-xl bg-amber-500 px-4 py-3 text-base font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {loading ? "가입 중..." : "회원가입"}
             </button>
           </form>
 
-          <p className="mt-4 text-center text-xs text-stone-500">
+          <p className="mt-4 text-center text-sm text-stone-500">
             이미 계정이 있다면{" "}
             <Link href="/login" className="font-medium text-amber-600 hover:underline">
               로그인

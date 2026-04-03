@@ -77,13 +77,13 @@ export default function ClientTopBar() {
   const isAdminPath = (pathname ?? "").startsWith("/admin");
 
   const barClass =
-    "sticky top-0 z-40 flex min-h-[46px] items-center justify-between gap-3 border-b border-stone-200 bg-white/90 px-4 py-2 text-sm text-stone-600 backdrop-blur sm:px-6";
+    "sticky top-0 z-40 flex shrink-0 min-h-[48px] items-center justify-between gap-3 border-b border-stone-200 bg-white/90 px-4 py-2 text-base text-stone-600 backdrop-blur sm:px-6";
 
   const BrandButton = (
     <button
       type="button"
       onClick={() => router.push("/")}
-      className="shrink-0 text-left text-sm font-semibold text-stone-800 hover:text-amber-700"
+      className="shrink-0 text-left text-base font-semibold text-stone-800 hover:text-amber-700"
     >
       마트방송 시스템
     </button>
@@ -96,14 +96,14 @@ export default function ClientTopBar() {
           <button
             type="button"
             onClick={() => router.push("/admin")}
-            className="shrink-0 text-left text-sm font-semibold text-stone-800 hover:text-amber-700"
+            className="shrink-0 text-left text-base font-semibold text-stone-800 hover:text-amber-700"
           >
             마트방송 관리자
           </button>
         </div>
         {adminId ? (
           <div className="flex items-center gap-2">
-            <span className="mr-1 text-sm">
+            <span className="mr-1 text-base">
               로그인: <span className="font-medium text-stone-800">{adminId}</span>
             </span>
             <button
@@ -114,7 +114,7 @@ export default function ClientTopBar() {
                   router.push("/admin/login");
                 })();
               }}
-              className="rounded-full border border-stone-300 px-3 py-1 text-sm font-medium text-stone-700 hover:border-amber-400 hover:text-amber-700"
+              className="rounded-full border border-stone-300 px-3 py-1.5 text-base font-medium text-stone-700 hover:border-amber-400 hover:text-amber-700"
             >
               로그아웃
             </button>
@@ -132,7 +132,8 @@ export default function ClientTopBar() {
 
   if (!userEmail) {
     const path = pathname ?? "";
-    const hideGuestAuthButtons = path === "/login" || path === "/signup";
+    const hideGuestAuthButtons =
+      path === "/login" || path === "/signup" || path.startsWith("/demo");
 
     return (
       <div className={barClass}>
@@ -142,14 +143,14 @@ export default function ClientTopBar() {
             <button
               type="button"
               onClick={() => router.push("/login")}
-              className="rounded-full border border-stone-300 px-3 py-1 text-sm font-medium text-stone-700 hover:border-amber-400 hover:text-amber-700"
+              className="rounded-full border border-stone-300 px-3 py-1.5 text-base font-medium text-stone-700 hover:border-amber-400 hover:text-amber-700"
             >
               로그인
             </button>
             <button
               type="button"
               onClick={() => router.push("/signup")}
-              className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-800 hover:bg-amber-100"
+              className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-base font-medium text-amber-800 hover:bg-amber-100"
             >
               회원가입
             </button>
@@ -170,13 +171,13 @@ export default function ClientTopBar() {
         {BrandButton}
       </div>
       <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
-        <span className="hidden text-sm text-stone-500 sm:inline sm:whitespace-nowrap">
-          현재 플랜: <span className="font-medium text-stone-800">{planText}</span>
+        <span className="hidden text-base text-stone-500 sm:inline sm:whitespace-nowrap">
+          현재 구독: <span className="font-medium text-stone-800">{planText}</span>
         </span>
         <button
           type="button"
           onClick={handleGoPricing}
-          className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700 hover:bg-amber-100"
+          className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-base font-medium text-amber-700 hover:bg-amber-100"
         >
           {pricingCtaLabel}
         </button>
@@ -188,7 +189,7 @@ export default function ClientTopBar() {
             aria-haspopup="menu"
             aria-expanded={userMenuOpen}
             aria-controls="user-menu-panel"
-            className={`inline-flex max-w-[min(220px,48vw)] min-w-[7.25rem] cursor-pointer items-center truncate rounded-full border border-stone-300 bg-white py-1 pl-3 pr-10 text-left text-sm font-medium text-stone-800 hover:border-amber-400 sm:max-w-[260px] ${SELECT_CHEVRON_TAILWIND}`}
+            className={`inline-flex max-w-[min(220px,48vw)] min-w-[7.25rem] cursor-pointer items-center truncate rounded-full border border-stone-300 bg-white py-1.5 pl-3 pr-10 text-left text-base font-medium text-stone-800 hover:border-amber-400 sm:max-w-[260px] ${SELECT_CHEVRON_TAILWIND}`}
             onClick={() => setUserMenuOpen((o) => !o)}
           >
             {userEmail}
@@ -203,7 +204,7 @@ export default function ClientTopBar() {
               <button
                 type="button"
                 role="menuitem"
-                className="flex w-full px-3 py-2 text-left text-sm text-stone-800 hover:bg-stone-50"
+                className="flex w-full px-3 py-2.5 text-left text-base text-stone-800 hover:bg-stone-50"
                 onClick={() => {
                   setUserMenuOpen(false);
                   router.push("/account");
@@ -214,7 +215,7 @@ export default function ClientTopBar() {
               <button
                 type="button"
                 role="menuitem"
-                className="flex w-full px-3 py-2 text-left text-sm text-stone-800 hover:bg-stone-50"
+                className="flex w-full px-3 py-2.5 text-left text-base text-stone-800 hover:bg-stone-50"
                 onClick={() => {
                   setUserMenuOpen(false);
                   router.push("/subscription");
@@ -225,7 +226,7 @@ export default function ClientTopBar() {
               <button
                 type="button"
                 role="menuitem"
-                className="flex w-full px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+                className="flex w-full px-3 py-2.5 text-left text-base text-red-700 hover:bg-red-50"
                 onClick={() => {
                   setUserMenuOpen(false);
                   logout();

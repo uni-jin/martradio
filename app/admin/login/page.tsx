@@ -26,8 +26,8 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[var(--bg)]">
-      <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-4">
+    <main className="flex min-h-full flex-col justify-center bg-[var(--bg)]">
+      <div className="mx-auto w-full max-w-md px-4 py-6">
         <div className="w-full rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
           <h1 className="text-2xl font-bold text-stone-800">관리자 로그인</h1>
           <form onSubmit={onSubmit} className="mt-6 space-y-4">

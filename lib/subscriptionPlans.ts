@@ -10,7 +10,7 @@ export function getPlanAmount(planId: PaidPlanId): number {
 }
 
 export function getPlanOrderName(planId: PaidPlanId): string {
-  return planId === "large" ? "무제한 플랜 월 구독" : "기본 플랜 월 구독";
+  return planId === "large" ? "무제한 방송 월 구독" : "기본 방송 월 구독";
 }
 
 export function paidPlanTierRank(planId: PaidPlanId): number {

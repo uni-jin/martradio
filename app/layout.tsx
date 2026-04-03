@@ -3,6 +3,7 @@ import { Noto_Sans_KR } from "next/font/google";
 import "./globals.css";
 import AuthGuard from "./_components/AuthGuard";
 import ClientTopBar from "./_components/ClientTopBar";
+import ScrollToTopOnRoute from "./_components/ScrollToTopOnRoute";
 
 const notoSansKr = Noto_Sans_KR({
   subsets: ["latin"],
@@ -22,10 +23,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className={notoSansKr.variable}>
-      <body className="min-h-screen font-sans antialiased">
+      <body className="flex min-h-dvh flex-col font-sans antialiased">
         <AuthGuard>
           <ClientTopBar />
-          {children}
+          <div className="flex min-h-0 w-full flex-1 flex-col">
+            <ScrollToTopOnRoute />
+            {children}
+          </div>
         </AuthGuard>
       </body>
     </html>

@@ -15,6 +15,9 @@ import {
   DEFAULT_TTS,
   speedToRatePercent,
   ratePercentToSpeed,
+  TTS_LINE_BREAK_PAUSE_OPTIONS,
+  normalizeTtsLineBreakPauseSeconds,
+  labelForTtsLineBreakPauseSeconds,
 } from "@/lib/ttsOptions";
 import type { SessionWithItems } from "@/lib/types";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
@@ -119,7 +122,7 @@ export default function PlayBroadcastPage() {
         setPresetId(preset.id);
       }
       setSpeed(ratePercentToSpeed(s.ttsRate));
-      if (s.ttsBreakSeconds !== undefined) setTtsBreakSeconds(s.ttsBreakSeconds);
+      setTtsBreakSeconds(normalizeTtsLineBreakPauseSeconds(s.ttsBreakSeconds));
     }
   }, [id]);
 
@@ -392,7 +395,7 @@ export default function PlayBroadcastPage() {
 
   if (!id) {
     return (
-      <main className="min-h-screen bg-[var(--bg)] p-8">
+      <main className="min-h-full bg-[var(--bg)] p-8">
         <p className="text-stone-500">잘못된 경로입니다.</p>
         <Link href="/" className="mt-2 inline-block text-amber-600 hover:underline">← 첫 화면</Link>
       </main>
@@ -401,7 +404,7 @@ export default function PlayBroadcastPage() {
 
   if (session === null) {
     return (
-      <main className="min-h-screen bg-[var(--bg)] p-8">
+      <main className="min-h-full bg-[var(--bg)] p-8">
         <p className="text-stone-500">방송을 찾을 수 없습니다.</p>
         <Link href="/" className="mt-2 inline-block text-amber-600 hover:underline">← 첫 화면</Link>
       </main>
@@ -409,13 +412,13 @@ export default function PlayBroadcastPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--bg)]">
+    <main className="min-h-full bg-[var(--bg)]">
       <div className="mx-auto max-w-2xl px-4 py-8">
-        <Link href="/" className="text-sm text-stone-500 hover:text-stone-700">
+        <Link href="/" className="text-base text-stone-500 hover:text-stone-700">
           ← 첫 화면으로
         </Link>
-        <h1 className="mt-4 text-2xl font-bold text-stone-800">{session.title}</h1>
-        <p className="mt-1 text-sm text-stone-500">방송 재생</p>
+        <h1 className="mt-4 text-3xl font-bold text-stone-800">{session.title}</h1>
+        <p className="mt-1 text-base text-stone-500">방송 재생</p>
 
         {hasBgm && <div id={containerId} className="h-px w-px overflow-hidden opacity-0" aria-hidden />}
 
@@ -428,19 +431,19 @@ export default function PlayBroadcastPage() {
         />
 
         <section className="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-stone-800">MP3 생성</h2>
-          <p className="mt-1 text-sm text-stone-500">
+          <h2 className="text-xl font-semibold text-stone-800">MP3 생성</h2>
+          <p className="mt-1 text-base text-stone-500">
             저장된 멘트로 음성 파일을 생성합니다.
           </p>
 
           <div className="mt-6 border-t border-stone-100 pt-4">
-            <h3 className="text-sm font-medium text-stone-700">음성 설정</h3>
-            <p className="mt-1 text-xs text-stone-500">프리셋(음성+스타일)과 말하기 속도만 설정합니다.</p>
+            <h3 className="text-base font-semibold text-stone-800">음성 설정</h3>
+            <p className="mt-1 text-base text-stone-500">프리셋(음성+스타일)과 말하기 속도만 설정합니다.</p>
             {ttsProvider === "google" ? (
               <div className="mt-3">
                 <div className="mt-1.5 flex flex-wrap gap-2">
                   {voiceTemplates.map((p) => (
-                    <label key={p.id} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-2 text-sm has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
+                    <label key={p.id} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-2.5 text-base has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
                       <input
                         type="radio"
                         name="googlePreset"
@@ -456,10 +459,10 @@ export default function PlayBroadcastPage() {
               </div>
             ) : (
             <div className="mt-3">
-              <span className="block text-xs text-stone-500">라디오 프리셋 (Azure)</span>
+              <span className="block text-base text-stone-500">라디오 프리셋 (Azure)</span>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 {TTS_PRESETS.map((p) => (
-                  <label key={p.id} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-2 text-sm has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
+                  <label key={p.id} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-2.5 text-base has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
                     <input
                       type="radio"
                       name="ttsPreset"
@@ -477,14 +480,14 @@ export default function PlayBroadcastPage() {
 
             {ttsProvider === "azure" && presetId === "manual" && (
               <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50/50 p-4">
-                <span className="block text-xs font-medium text-stone-600">수동 설정</span>
+                <span className="block text-base font-medium text-stone-600">수동 설정</span>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs text-stone-500">목소리</label>
+                    <label className="block text-base text-stone-500">목소리</label>
                     <select
                       value={manualVoice}
                       onChange={(e) => setManualVoice(e.target.value)}
-                      className={`mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 pr-10 text-sm text-stone-800 ${SELECT_CHEVRON_TAILWIND}`}
+                      className={`mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 pr-10 text-base text-stone-800 ${SELECT_CHEVRON_TAILWIND}`}
                     >
                       {MANUAL_VOICES.map((v) => (
                         <option key={v.value} value={v.value}>{v.label}</option>
@@ -492,11 +495,11 @@ export default function PlayBroadcastPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-stone-500">분위기 (스타일)</label>
+                    <label className="block text-base text-stone-500">분위기 (스타일)</label>
                     <select
                       value={manualStyle}
                       onChange={(e) => setManualStyle(e.target.value)}
-                      className={`mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 pr-10 text-sm text-stone-800 ${SELECT_CHEVRON_TAILWIND}`}
+                      className={`mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 pr-10 text-base text-stone-800 ${SELECT_CHEVRON_TAILWIND}`}
                     >
                       {MANUAL_STYLES.map((s) => (
                         <option key={s.value} value={s.value}>{s.label}</option>
@@ -504,17 +507,17 @@ export default function PlayBroadcastPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-stone-500">피치 (예: 0%, +2%, -5%)</label>
+                    <label className="block text-base text-stone-500">피치 (예: 0%, +2%, -5%)</label>
                     <input
                       type="text"
                       value={manualPitch}
                       onChange={(e) => setManualPitch(e.target.value)}
                       placeholder="0%"
-                      className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                      className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-stone-500">스타일 강도 (0.01~2)</label>
+                    <label className="block text-base text-stone-500">스타일 강도 (0.01~2)</label>
                     <input
                       type="number"
                       min={0.01}
@@ -522,7 +525,7 @@ export default function PlayBroadcastPage() {
                       step={0.1}
                       value={manualStyleDegree}
                       onChange={(e) => setManualStyleDegree(parseFloat(e.target.value) || 1.2)}
-                      className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+                      className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
                     />
                   </div>
                 </div>
@@ -530,7 +533,7 @@ export default function PlayBroadcastPage() {
             )}
 
             <div className="mt-4">
-              <span className="block text-xs text-stone-500">말하기 속도 {speed.toFixed(1)}x</span>
+              <span className="block text-base text-stone-500">말하기 속도 {speed.toFixed(1)}x</span>
               <div className="mt-1 flex items-center gap-3">
                 <input
                   type="range"
@@ -547,7 +550,7 @@ export default function PlayBroadcastPage() {
                       key={v}
                       type="button"
                       onClick={() => setSpeed(v)}
-                      className={`min-w-[2.25rem] rounded px-2 py-1 text-sm ${speed === v ? "bg-amber-500 text-white" : "text-stone-600 hover:bg-stone-100"}`}
+                      className={`min-w-[2.25rem] rounded px-2 py-1 text-base ${speed === v ? "bg-amber-500 text-white" : "text-stone-600 hover:bg-stone-100"}`}
                     >
                       {v}
                     </button>
@@ -556,17 +559,27 @@ export default function PlayBroadcastPage() {
               </div>
             </div>
             <div className="mt-3">
-              <label className="block text-xs text-stone-500">상품 사이 쉼 (초)</label>
-              <p className="mt-0.5 text-xs text-stone-400">멘트 줄 사이에 쉬는 시간입니다.</p>
-              <input
-                type="number"
-                min={0.5}
-                max={3}
-                step={0.1}
-                value={ttsBreakSeconds}
-                onChange={(e) => setTtsBreakSeconds(parseFloat(e.target.value) || 0.5)}
-                className="mt-1 w-full max-w-[8rem] rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
-              />
+              <span className="block text-base text-stone-500">줄 사이 쉼</span>
+              <p className="mt-0.5 text-base text-stone-400">
+                Enter로 나눈 줄과 줄 사이 쉼입니다. 한 줄만 있으면 적용되지 않습니다.
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {TTS_LINE_BREAK_PAUSE_OPTIONS.map((o) => (
+                  <label
+                    key={o.value}
+                    className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-2.5 text-base has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50"
+                  >
+                    <input
+                      type="radio"
+                      name="ttsLineBreakPause"
+                      checked={normalizeTtsLineBreakPauseSeconds(ttsBreakSeconds) === o.value}
+                      onChange={() => setTtsBreakSeconds(o.value)}
+                      className="h-4 w-4 border-stone-300 text-amber-600"
+                    />
+                    {o.label}
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -578,19 +591,19 @@ export default function PlayBroadcastPage() {
           >
             {isGenerating ? "생성 중…" : "음성 파일 생성"}
           </button>
-          <p className="mt-1 text-xs text-stone-500">
+          <p className="mt-1 text-base text-stone-500">
             음성 파일을 생성하고, 아래 재생 영역에서 방송을 틀 수 있습니다.
           </p>
           {generateError && (
-            <p className="mt-2 text-sm text-red-600">{generateError}</p>
+            <p className="mt-2 text-base text-red-600">{generateError}</p>
           )}
           {hasAudio && !generateError && (
             <div className="mt-2 flex flex-wrap items-center gap-3">
-              <p className="text-sm text-green-600">오디오가 준비되었습니다. 아래에서 재생하거나 다운로드할 수 있습니다.</p>
+              <p className="text-base text-green-600">오디오가 준비되었습니다. 아래에서 재생하거나 다운로드할 수 있습니다.</p>
               <button
                 type="button"
                 onClick={handleDownload}
-                className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50"
+                className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-base text-stone-700 hover:bg-stone-50"
               >
                 MP3 다운로드
               </button>
@@ -599,9 +612,9 @@ export default function PlayBroadcastPage() {
         </section>
 
         <section className="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-stone-800">재생</h2>
+          <h2 className="text-xl font-semibold text-stone-800">재생</h2>
           {hasAudio && (
-            <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-sm text-stone-700">
+            <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-base text-stone-700">
               <p className="font-medium text-stone-800">재생될 MP3 생성 설정</p>
               <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5">
                 <li>제공자: {session?.ttsProvider === "google" ? "Google (Chirp 3 HD)" : "Azure"}</li>
@@ -626,9 +639,14 @@ export default function PlayBroadcastPage() {
                   </>
                 )}
                 <li>말하기 속도: {session?.ttsRate ? `${ratePercentToSpeed(session.ttsRate).toFixed(1)}x` : "1.0x"}</li>
-                <li>상품 사이 쉼: {session?.ttsBreakSeconds != null ? `${session.ttsBreakSeconds}초` : "—"}</li>
+                <li>
+                  줄 사이 쉼:{" "}
+                  {session?.ttsBreakSeconds != null
+                    ? labelForTtsLineBreakPauseSeconds(session.ttsBreakSeconds)
+                    : "—"}
+                </li>
               </ul>
-              <p className="mt-1.5 text-xs text-stone-500">설정을 바꾼 뒤에는 MP3를 다시 생성해야 반영됩니다.</p>
+              <p className="mt-1.5 text-base text-stone-500">설정을 바꾼 뒤에는 MP3를 다시 생성해야 반영됩니다.</p>
             </div>
           )}
           <div className="mt-4 flex flex-col items-center gap-3">
@@ -644,23 +662,16 @@ export default function PlayBroadcastPage() {
               </button>
               <button
                 type="button"
-                onClick={pause}
-                disabled={!hasAudio}
-                className="rounded-lg border border-stone-300 px-4 py-2 text-sm disabled:opacity-40"
-              >
-                ⏸ 일시정지
-              </button>
-              <button
-                type="button"
                 onClick={stop}
                 disabled={!hasAudio}
-                className="rounded-lg border border-stone-300 px-4 py-2 text-sm disabled:opacity-40"
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-stone-800 text-white disabled:opacity-40"
+                aria-label="정지"
               >
-                ⏹ 정지
+                ⏹
               </button>
             </div>
             {hasBgm && !ytPlayer.ready && (
-              <p className="text-xs text-stone-500">중간 음악 로딩 중…</p>
+              <p className="text-base text-stone-500">중간 음악 로딩 중…</p>
             )}
             {hasAudio && duration > 0 && (
               <div className="w-full max-w-md">
@@ -677,7 +688,7 @@ export default function PlayBroadcastPage() {
                   }}
                   className="h-2 w-full accent-amber-500"
                 />
-                <div className="mt-0.5 flex justify-between text-xs text-stone-500">
+                <div className="mt-0.5 flex justify-between text-base text-stone-500">
                   <span>{Math.floor(currentTime / 60)}:{String(Math.floor(currentTime % 60)).padStart(2, "0")}</span>
                   <span>{Math.floor(duration / 60)}:{String(Math.floor(duration % 60)).padStart(2, "0")}</span>
                 </div>
@@ -685,13 +696,13 @@ export default function PlayBroadcastPage() {
             )}
           </div>
           {!hasAudio && (
-            <p className="mt-2 text-sm text-stone-500">먼저 MP3를 생성해 주세요.</p>
+            <p className="mt-2 text-base text-stone-500">먼저 MP3를 생성해 주세요.</p>
           )}
 
           {hasBgm && (
             <div className="mt-6 border-t border-stone-100 pt-4">
-              <h3 className="text-sm font-medium text-stone-700">중간 음악 볼륨</h3>
-              <p className="mt-0.5 text-xs text-stone-500">
+              <h3 className="text-base font-semibold text-stone-800">중간 음악 볼륨</h3>
+              <p className="mt-0.5 text-base text-stone-500">
                 방송 음성 다음에 재생되는 YouTube 구간의 음량입니다.
               </p>
               <div className="mt-2 flex items-center gap-3">
@@ -707,13 +718,13 @@ export default function PlayBroadcastPage() {
                   }}
                   className="h-2 flex-1 accent-amber-500"
                 />
-                <span className="w-10 text-sm text-stone-600">{bgmVolume}%</span>
+                <span className="w-10 text-base text-stone-600">{bgmVolume}%</span>
               </div>
             </div>
           )}
 
           <div className="mt-6 border-t border-stone-100 pt-4">
-            <h3 className="text-sm font-medium text-stone-700">반복 재생</h3>
+            <h3 className="text-base font-semibold text-stone-800">반복 재생</h3>
             <label className="mt-2 flex items-center gap-2">
               <input
                 type="checkbox"
@@ -721,26 +732,26 @@ export default function PlayBroadcastPage() {
                 onChange={(e) => setRepeatEnabled(e.target.checked)}
                 className="h-4 w-4 rounded border-stone-300"
               />
-              <span className="text-sm text-stone-600">재생 종료 후 반복</span>
+              <span className="text-base text-stone-600">재생 종료 후 반복</span>
             </label>
             <div className="mt-2 flex items-center gap-2">
-              <span className="text-sm text-stone-600">간격</span>
+              <span className="text-base text-stone-600">간격</span>
               <input
                 type="number"
                 min={1}
                 value={repeatMinutes}
                 onChange={(e) => setRepeatMinutes(parseInt(e.target.value, 10) || 1)}
                 onBlur={saveRepeatSetting}
-                className="w-20 rounded border border-stone-200 px-2 py-1 text-sm"
+                className="w-20 rounded border border-stone-200 px-2 py-1 text-base"
               />
-              <span className="text-sm text-stone-600">분</span>
+              <span className="text-base text-stone-600">분</span>
             </div>
           </div>
         </section>
 
         <Link
           href={`/broadcast/${id}/edit`}
-          className="mt-6 inline-block text-sm text-stone-500 hover:text-stone-700"
+          className="mt-6 inline-block text-base text-stone-500 hover:text-stone-700"
         >
           방송 수정하기 →
         </Link>

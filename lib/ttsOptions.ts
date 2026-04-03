@@ -65,6 +65,25 @@ export const DEFAULT_TTS = {
   breakSeconds: 0.5,
 } as const;
 
+/**
+ * Enter로 나눈 줄마다 합성 시 삽입하는 쉼(Chirp 3 HD [pause short]/[pause long]).
+ * 저장값은 API 분기(>1이면 long)에 맞춰 0.5 | 1.5 만 사용한다.
+ */
+export const TTS_LINE_BREAK_PAUSE_OPTIONS = [
+  { value: 0.5, label: "짧은 쉼" },
+  { value: 1.5, label: "긴 쉼" },
+] as const;
+
+export function normalizeTtsLineBreakPauseSeconds(raw: number | undefined | null): number {
+  if (raw == null || !Number.isFinite(Number(raw))) return TTS_LINE_BREAK_PAUSE_OPTIONS[0].value;
+  return Number(raw) > 1 ? 1.5 : 0.5;
+}
+
+export function labelForTtsLineBreakPauseSeconds(seconds: number | undefined | null): string {
+  const v = normalizeTtsLineBreakPauseSeconds(seconds);
+  return TTS_LINE_BREAK_PAUSE_OPTIONS.find((o) => o.value === v)?.label ?? TTS_LINE_BREAK_PAUSE_OPTIONS[0].label;
+}
+
 /** Google TTS (Chirp 3 HD) 프리셋. 무료 100만 글자/월. 스타일 기반 라벨 */
 export const GOOGLE_TTS_PRESETS = [
   { id: "google_charon", label: "활기찬 남자 (Charon)", voice: "ko-KR-Chirp3-HD-Charon" },

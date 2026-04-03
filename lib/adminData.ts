@@ -236,8 +236,8 @@ export function getAdminProducts(): AdminProduct[] {
   const list = readList<AdminProduct>(PRODUCTS_KEY, [
     {
       id: "free",
-      name: "무료",
-      maxChars: 50,
+      name: "무료 방송",
+      maxChars: 100,
       visibleSessionLimit: 1,
       priceMonthly: 0,
       templateEnabled: false,
@@ -245,7 +245,7 @@ export function getAdminProducts(): AdminProduct[] {
     },
     {
       id: "small",
-      name: "기본 플랜",
+      name: "기본 방송",
       maxChars: 500,
       visibleSessionLimit: 5,
       priceMonthly: 9900,
@@ -254,7 +254,7 @@ export function getAdminProducts(): AdminProduct[] {
     },
     {
       id: "medium",
-      name: "기본 플랜",
+      name: "기본 방송",
       maxChars: 500,
       visibleSessionLimit: 5,
       priceMonthly: 9900,
@@ -263,7 +263,7 @@ export function getAdminProducts(): AdminProduct[] {
     },
     {
       id: "large",
-      name: "무제한 플랜",
+      name: "무제한 방송",
       maxChars: null,
       visibleSessionLimit: null,
       priceMonthly: 19900,
@@ -357,7 +357,7 @@ export function getTemplateOptionsForPlan(planId: string | undefined): AdminTemp
 export type AdminDashboardStats = {
   totalUsers: number;
   paidUsers: number;
-  /** 플랜별 가입자 수 (무료/기본 플랜/무제한 플랜) */
+  /** 구독별 가입자 수 (무료 방송/기본 방송/무제한 방송) */
   planBreakdown: { key: string; label: string; count: number }[];
   referrersTotal: number;
   referrersActive: number;
@@ -387,9 +387,9 @@ function userPlanKey(u: Record<string, unknown>): PlanKey {
 /** 클라이언트에서 localStorage 기준으로 집계. 서버에서는 빈 값에 가까운 결과. */
 export function computeAdminDashboardStats(): AdminDashboardStats {
   const emptyPlanBreakdown = [
-    { key: "free", label: "무료", count: 0 },
-    { key: "basic", label: "기본 플랜", count: 0 },
-    { key: "large", label: "무제한 플랜", count: 0 },
+    { key: "free", label: "무료 방송", count: 0 },
+    { key: "basic", label: "기본 방송", count: 0 },
+    { key: "large", label: "무제한 방송", count: 0 },
   ];
 
   if (typeof window === "undefined") {
@@ -429,17 +429,17 @@ export function computeAdminDashboardStats(): AdminDashboardStats {
   const planBreakdown = [
     {
       key: "free",
-      label: "무료",
+      label: "무료 방송",
       count: planCounts.get("free") ?? 0,
     },
     {
       key: "basic",
-      label: "기본 플랜",
+      label: "기본 방송",
       count: (planCounts.get("small") ?? 0) + (planCounts.get("medium") ?? 0),
     },
     {
       key: "large",
-      label: "무제한 플랜",
+      label: "무제한 방송",
       count: planCounts.get("large") ?? 0,
     },
   ];

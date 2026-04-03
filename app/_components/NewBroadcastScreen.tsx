@@ -2,11 +2,10 @@
 
 import { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { getSession, saveSession } from "@/lib/store";
-import { extractYoutubeId } from "@/lib/utils";
-import type { Session, BroadcastItem, SessionWithItems } from "@/lib/types";
-import { getCurrentUser, getMaxCharsForUser } from "@/lib/auth";
+import { getAllSessions, saveSession } from "@/lib/store";
+import { generateId, extractYoutubeId } from "@/lib/utils";
+import type { Session, SessionWithItems } from "@/lib/types";
+import { getCurrentUser, getMaxCharsForUser, getVisibleSessionCountForUser } from "@/lib/auth";
 import { saveAudio, getAudioBlob, hasStoredAudio } from "@/lib/audioStorage";
 import {
   DEFAULT_TTS,
@@ -14,7 +13,6 @@ import {
   SPEED_MIN,
   SPEED_MAX,
   speedToRatePercent,
-  ratePercentToSpeed,
   TTS_LINE_BREAK_PAUSE_OPTIONS,
   normalizeTtsLineBreakPauseSeconds,
 } from "@/lib/ttsOptions";
@@ -27,6 +25,7 @@ import {
   buildBroadcastPlaybackCommitSnapshot,
   broadcastPlaybackCommitMatches,
 } from "@/lib/broadcastPlaybackCommit";
+
 function digitsOnly(v: string) {
   return v.replace(/\D/g, "");
 }
@@ -38,15 +37,14 @@ function totalSecondsFromMinSec(minStr: string, secStr: string): number {
   return min * 60 + sec;
 }
 
-export default function EditBroadcastPage() {
-  const params = useParams();
-  const sessionId = typeof params.id === "string" ? params.id : "";
+const DEMO_MAX_CHARS = 50;
 
-  const [loaded, setLoaded] = useState(false);
-  const [sessionBase, setSessionBase] = useState<Session | null>(null);
-  const itemsRef = useRef<BroadcastItem[]>([]);
-  const eventItemsRef = useRef<BroadcastItem[]>([]);
+export type NewBroadcastScreenProps = {
+  demoMode?: boolean;
+};
 
+export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps) {
+  const [sessionId] = useState(() => generateId());
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [bgmUrl, setBgmUrl] = useState("");
@@ -69,28 +67,34 @@ export default function EditBroadcastPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [bgmVolume, setBgmVolume] = useState(40);
+  /** 재생 반복: 무한 또는 지정 횟수 (1회 = 방송 1 사이클) */
   const [loopMode, setLoopMode] = useState<"infinite" | "count">("infinite");
   const [repeatCount, setRepeatCount] = useState(3);
+  /** 사이클 사이 무음 대기 (초) */
   const [gapSeconds, setGapSeconds] = useState(0);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
-  /** 음성 생성 성공 후 또는 저장된 방송과 동기일 때만 true. 방송·음악(2)·음성(3)이 달라지면 숨김. */
+  const [showLoadModal, setShowLoadModal] = useState(false);
+  /** 음성 생성 성공 후에만 노출. 방송·음악(2)·음성(3) 영역 변경 시 숨김(다시 생성해야 표시). */
   const [playbackSectionVisible, setPlaybackSectionVisible] = useState(false);
   const committedPlaybackRef = useRef<BroadcastPlaybackCommitSnapshot | null>(null);
+
   const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const blobUrlRef = useRef<string | null>(null);
   const onBgmEndRef = useRef<() => void>(() => {});
   const phaseRef = useRef<"idle" | "tts" | "bgm">("idle");
   const modeRef = useRef<"background" | "interval">("background");
-  const loopInfiniteRef = useRef(true);
-  const repeatCountRef = useRef(3);
-  const gapSecondsRef = useRef(0);
+  const loopInfiniteRef = useRef<boolean>(true);
+  const repeatCountRef = useRef<number>(3);
+  const gapSecondsRef = useRef<number>(0);
+  /** 재생 세션마다 증가 — 정지 시 무효화해 대기 중 다음 사이클 취소 */
   const playbackGenRef = useRef(0);
   const pausedAtRef = useRef(0);
+  /** 이번 세션에서 완료한 방송 사이클 수 (beginPlayback 때 0) */
   const cyclesCompletedRef = useRef(0);
   const activePlaybackGenRef = useRef(0);
 
-  const user = useMemo(() => getCurrentUser(), []);
+  const user = useMemo(() => (demoMode ? null : getCurrentUser()), [demoMode]);
   const templateOptions = useMemo(() => getTemplateOptionsForPlan(user?.planId), [user]);
   const [voiceListTick, setVoiceListTick] = useState(0);
   useEffect(() => {
@@ -102,7 +106,8 @@ export default function EditBroadcastPage() {
     void voiceListTick;
     return getVoiceTemplatesUserFacing(user?.planId);
   }, [voiceListTick, user]);
-  const maxChars: number | null = useMemo(() => getMaxCharsForUser(user), [user]);
+  const planMaxChars: number | null = useMemo(() => getMaxCharsForUser(user), [user]);
+  const maxChars: number | null = demoMode ? DEMO_MAX_CHARS : planMaxChars;
   const contentLength = content.length;
   const overLimit = maxChars != null && contentLength > maxChars;
 
@@ -145,6 +150,12 @@ export default function EditBroadcastPage() {
     setYoutubeEmbedIframeVolume(previewIframeRef.current, bgmVolume);
   }, [bgmVolume]);
 
+  useEffect(() => {
+    const list = getVoiceTemplatesUserFacing(user?.planId);
+    if (list.length === 0) return;
+    setGooglePresetId((prev) => (prev && list.some((x) => x.id === prev) ? prev : list[0].id));
+  }, [voiceListTick, user]);
+
   const previewSrc = useMemo(() => {
     if (!youtubeId) return null;
     const params = new URLSearchParams();
@@ -164,13 +175,6 @@ export default function EditBroadcastPage() {
     }
     return `https://www.youtube.com/embed/${youtubeId}?${params.toString()}`;
   }, [youtubeId, bgmPlayRange, bgmStartMin, bgmStartSec, bgmEndMin, bgmEndSec]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    const list = getVoiceTemplatesUserFacing(user?.planId);
-    if (list.length === 0) return;
-    setGooglePresetId((prev) => (prev && list.some((x) => x.id === prev) ? prev : list[0].id));
-  }, [loaded, voiceListTick]);
 
   const validateBgm = () => {
     if (!bgmUrl.trim()) {
@@ -194,107 +198,24 @@ export default function EditBroadcastPage() {
   };
 
   const refreshHasAudio = useCallback(async () => {
-    if (!sessionId) return;
     const present = await hasStoredAudio(sessionId);
     setHasAudio(present);
   }, [sessionId]);
 
   useEffect(() => {
-    if (!sessionId) return;
-    const s = getSession(sessionId) as SessionWithItems | null;
-    if (s) {
-      setSessionBase(s);
-      setTitle(s.title ?? "");
-      const genText = s.generatedText ?? "";
-      const vol =
-        s.bgmVolume != null && Number.isFinite(Number(s.bgmVolume))
-          ? Math.max(0, Math.min(100, Math.round(Number(s.bgmVolume))))
-          : 40;
-      setContent(genText);
-      setBgmVolume(vol);
-      setBgmUrl(s.bgmYoutubeUrl ?? "");
-      setMusicMode(s.musicMode === "background" ? "background" : "interval");
-      const bs = s.bgmStartSeconds;
-      const be = s.bgmEndSeconds;
-      let playRange: "full" | "segment" = "full";
-      let smin = "";
-      let ssec = "";
-      let emin = "";
-      let esec = "";
-      if (bs != null && be != null && be > bs) {
-        playRange = "segment";
-        smin = String(Math.floor(bs / 60));
-        ssec = String(bs % 60);
-        emin = String(Math.floor(be / 60));
-        esec = String(be % 60);
-        setBgmPlayRange("segment");
-        setBgmStartMin(smin);
-        setBgmStartSec(ssec);
-        setBgmEndMin(emin);
-        setBgmEndSec(esec);
-      } else {
-        setBgmPlayRange("full");
-        setBgmStartMin("");
-        setBgmStartSec("");
-        setBgmEndMin("");
-        setBgmEndSec("");
-      }
-      itemsRef.current = s.items ?? [];
-      eventItemsRef.current = s.eventItems ?? [];
-
-      const list = getVoiceTemplatesUserFacing(user?.planId);
-      const loadedBreak = normalizeTtsLineBreakPauseSeconds(s.ttsBreakSeconds);
-      const loadedSpeed =
-        s.ttsRate != null ? ratePercentToSpeed(s.ttsRate) : DEFAULT_TTS.speed;
-      let loadedPresetId = "";
-      if (s.ttsVoiceTemplateId) {
-        const t = list.find((x) => x.id === s.ttsVoiceTemplateId);
-        if (t) loadedPresetId = t.id;
-      }
-      if (!loadedPresetId && s.voice) {
-        const preset = list.find((p) => p.voice === s.voice);
-        if (preset) loadedPresetId = preset.id;
-      }
-      if (!loadedPresetId && list[0]) loadedPresetId = list[0].id;
-
-      setTtsBreakSeconds(loadedBreak);
-      setSpeed(loadedSpeed);
-      setGooglePresetId(loadedPresetId);
-
-      committedPlaybackRef.current = buildBroadcastPlaybackCommitSnapshot({
-        content: genText,
-        bgmVolume: vol,
-        bgmUrl: s.bgmYoutubeUrl ?? "",
-        musicMode: s.musicMode === "background" ? "background" : "interval",
-        bgmPlayRange: playRange,
-        bgmStartMin: smin,
-        bgmStartSec: ssec,
-        bgmEndMin: emin,
-        bgmEndSec: esec,
-        ttsGooglePresetId: loadedPresetId,
-        ttsSpeed: loadedSpeed,
-        ttsBreakSeconds: loadedBreak,
-      });
-    } else {
-      committedPlaybackRef.current = null;
-    }
-    setLoaded(true);
-    void refreshHasAudio();
-  }, [sessionId, refreshHasAudio]);
-
-  useEffect(() => {
     return () => {
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+      }
     };
   }, []);
 
   const handleGenerate = async () => {
     if (!content.trim()) return;
-    if (!sessionId) return;
     if (!validateBgm()) return;
+
     setIsGenerating(true);
     setGenerateError(null);
-
     try {
       const gp =
         availableGooglePresets.find((p) => p.id === googlePresetId) ?? availableGooglePresets[0];
@@ -320,27 +241,37 @@ export default function EditBroadcastPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `오류 ${res.status}`);
       }
+
       const blob = await res.blob();
       await saveAudio(sessionId, blob);
+      // 음성 생성 직후 오브젝트 URL을 만들어 `blobUrlRef`에 고정합니다.
+      // 이후 재생 버튼에서는 IndexedDB 조회(await)를 피해서 autoplay 차단 케이스를 줄입니다.
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+      }
+      blobUrlRef.current = URL.createObjectURL(blob);
+      if (audioRef.current) {
+        audioRef.current.src = blobUrlRef.current;
+      }
 
       const now = new Date().toISOString();
-      const base = sessionBase;
       const session: Session = {
         id: sessionId,
-        title: title.trim() || base?.title || "제목 없음",
-        eventType: base?.eventType ?? "FREE",
-        customOpening: base?.customOpening,
-        scheduledAt: base?.scheduledAt ?? null,
-        scheduledEndAt: base?.scheduledEndAt ?? null,
-        repeatMinutes: base?.repeatMinutes ?? 5,
-        itemSuffixIsnida: base?.itemSuffixIsnida ?? true,
+        title: title.trim(),
+        eventType: "FREE",
+        customOpening: undefined,
+        scheduledAt: null,
+        scheduledEndAt: null,
+        repeatMinutes: 5,
+        itemSuffixIsnida: true,
         lastGeneratedAt: now,
-        lastPlayedAt: base?.lastPlayedAt ?? null,
-        latestAudioUrl: base?.latestAudioUrl ?? null,
+        lastPlayedAt: null,
+        latestAudioUrl: null,
         generatedText: content,
         musicMode,
         bgmYoutubeUrl: bgmUrl.trim() || null,
@@ -356,12 +287,13 @@ export default function EditBroadcastPage() {
         ttsRate: speedToRatePercent(speed),
         ttsBreakSeconds,
         bgmVolume,
-        createdAt: base?.createdAt ?? now,
+        createdAt: now,
         updatedAt: now,
       };
 
-      saveSession(session, itemsRef.current, eventItemsRef.current);
-      setSessionBase(session);
+      if (!demoMode) {
+        saveSession(session, [], []);
+      }
       await refreshHasAudio();
       committedPlaybackRef.current = buildBroadcastPlaybackCommitSnapshot({
         content,
@@ -385,6 +317,7 @@ export default function EditBroadcastPage() {
     }
   };
 
+  /** 대기 후에도 같은 재생 세션이면 true */
   const waitGap = useCallback(async (gen: number): Promise<boolean> => {
     const gap = gapSecondsRef.current;
     if (gap <= 0) return playbackGenRef.current === gen;
@@ -396,17 +329,21 @@ export default function EditBroadcastPage() {
     async (gen: number, startAtSeconds?: number) => {
       if (playbackGenRef.current !== gen) return;
       if (!audioRef.current) return;
-      if (!sessionId) return;
       activePlaybackGenRef.current = gen;
 
       try {
-        const blob = await getAudioBlob(sessionId);
-        if (!blob) return;
-        if (playbackGenRef.current !== gen) return;
-
-        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = URL.createObjectURL(blob);
-        audioRef.current.src = blobUrlRef.current;
+        // 생성 직후 handleGenerate에서 blob URL을 세팅해뒀다면,
+        // 여기서는 IndexedDB await를 건너뛰고 바로 재생만 시도한다.
+        if (!blobUrlRef.current) {
+          const blob = await getAudioBlob(sessionId);
+          if (!blob) return;
+          if (playbackGenRef.current !== gen) return;
+          blobUrlRef.current = URL.createObjectURL(blob);
+          audioRef.current.src = blobUrlRef.current;
+        } else {
+          audioRef.current.src = blobUrlRef.current;
+          if (playbackGenRef.current !== gen) return;
+        }
 
         if (startAtSeconds != null && Number.isFinite(startAtSeconds) && startAtSeconds >= 0) {
           audioRef.current.currentTime = startAtSeconds;
@@ -419,9 +356,10 @@ export default function EditBroadcastPage() {
               ytPlayer.setVolume(bgmVolume);
               ytPlayer.playSegment(startAtSeconds);
             } catch (e) {
-              // BGM(유튜브) 쪽이 막혀도 음성 재생은 계속 진행한다.
+              // BGM(유튜브) 쪽 실패가 발생해도 TTS 오디오는 재생되도록 한다.
               console.warn("ytPlayer.playSegment failed:", e);
             }
+
             audioRef.current.onended = async () => {
               if (playbackGenRef.current !== gen) return;
               if (phaseRef.current !== "tts") return;
@@ -486,14 +424,6 @@ export default function EditBroadcastPage() {
         if (playbackGenRef.current !== gen) return;
         setIsPlaying(true);
         setIsPaused(false);
-
-        const now = new Date().toISOString();
-        setSessionBase((b) => {
-          if (!b) return b;
-          const updated: Session = { ...b, lastPlayedAt: now, updatedAt: now };
-          saveSession(updated, itemsRef.current, eventItemsRef.current);
-          return updated;
-        });
       } catch (e) {
         if (playbackGenRef.current !== gen) return;
         phaseRef.current = "idle";
@@ -503,6 +433,8 @@ export default function EditBroadcastPage() {
             : e instanceof Error
               ? e.message
               : String(e);
+        // 재생 실패 원인을 콘솔에 남겨 운영 환경에서도 확인 가능하게 한다.
+        // (UI에는 간단한 이름만 표시)
         console.error("audio.play() failed:", e);
         setGenerateError(`재생을 시작할 수 없습니다. (${detail})`);
       }
@@ -519,6 +451,7 @@ export default function EditBroadcastPage() {
   }, [play]);
 
   const pause = useCallback(() => {
+    // 일시정지: currentTime을 유지하고, 재생 루프(onended)만 끊는다.
     playbackGenRef.current += 1;
     if (audioRef.current) {
       pausedAtRef.current = audioRef.current.currentTime || 0;
@@ -540,11 +473,13 @@ export default function EditBroadcastPage() {
   const stop = useCallback(() => {
     playbackGenRef.current += 1;
     if (audioRef.current) {
-      audioRef.current.onended = null;
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      audioRef.current.onended = null;
     }
-    if (hasBgm) ytPlayer.stop();
+    if (hasBgm) {
+      ytPlayer.stop();
+    }
     phaseRef.current = "idle";
     setIsPlaying(false);
     setIsPaused(false);
@@ -569,10 +504,7 @@ export default function EditBroadcastPage() {
       ttsBreakSeconds,
     });
     if (broadcastPlaybackCommitMatches(committedPlaybackRef.current, cur)) {
-      if (!sessionId) return;
-      void hasStoredAudio(sessionId).then((ok) => {
-        setPlaybackSectionVisible(ok);
-      });
+      setPlaybackSectionVisible(true);
       return;
     }
     setPlaybackSectionVisible(false);
@@ -590,8 +522,48 @@ export default function EditBroadcastPage() {
     googlePresetId,
     speed,
     ttsBreakSeconds,
-    sessionId,
   ]);
+
+  const disabled = !title.trim() || !content.trim() || overLimit;
+  const savedSessions = useMemo<SessionWithItems[]>(() => {
+    void showLoadModal;
+    if (demoMode) return [];
+    if (typeof window === "undefined") return [];
+    const all = getAllSessions();
+    const visibleLimit = getVisibleSessionCountForUser(user);
+    return visibleLimit == null ? all : all.slice(0, visibleLimit);
+  }, [showLoadModal, user, demoMode]);
+
+  const handleLoadSession = useCallback((session: SessionWithItems) => {
+    committedPlaybackRef.current = null;
+    setTitle(session.title ?? "");
+    setContent(session.generatedText ?? "");
+    const bv = session.bgmVolume;
+    setBgmVolume(
+      bv != null && Number.isFinite(Number(bv))
+        ? Math.max(0, Math.min(100, Math.round(Number(bv))))
+        : 40
+    );
+    setBgmUrl(session.bgmYoutubeUrl ?? "");
+    // 저장된 모드가 없으면 예전 동작을 유지하기 위해 "interval"로 둔다.
+    setMusicMode(session.musicMode === "background" ? "background" : "interval");
+    const s = session.bgmStartSeconds;
+    const e = session.bgmEndSeconds;
+    if (s != null && e != null && e > s) {
+      setBgmPlayRange("segment");
+      setBgmStartMin(String(Math.floor(s / 60)));
+      setBgmStartSec(String(s % 60));
+      setBgmEndMin(String(Math.floor(e / 60)));
+      setBgmEndSec(String(e % 60));
+    } else {
+      setBgmPlayRange("full");
+      setBgmStartMin("");
+      setBgmStartSec("");
+      setBgmEndMin("");
+      setBgmEndSec("");
+    }
+    setShowLoadModal(false);
+  }, []);
 
   useEffect(() => {
     onBgmEndRef.current = () => {
@@ -615,44 +587,42 @@ export default function EditBroadcastPage() {
     };
   }, [play, waitGap]);
 
-  if (!sessionId) {
-    return (
-      <main className="min-h-full bg-[var(--bg)] p-8">
-        <p className="text-base text-stone-600">잘못된 경로입니다.</p>
-        <Link href="/" className="mt-2 inline-block text-base text-amber-700 hover:underline">
-          ← 첫 화면
-        </Link>
-      </main>
-    );
-  }
-
-  if (!loaded) {
-    return (
-      <main className="min-h-full bg-[var(--bg)] p-8">
-        <p className="text-base text-stone-600">불러오는 중...</p>
-      </main>
-    );
-  }
-
-  if (!sessionBase) {
-    return (
-      <main className="min-h-full bg-[var(--bg)] p-8">
-        <p className="text-base text-stone-600">해당 방송을 찾을 수 없습니다.</p>
-        <Link href="/" className="mt-2 inline-block text-base text-amber-700 hover:underline">
-          ← 첫 화면
-        </Link>
-      </main>
-    );
-  }
-
-  const disabled = !title.trim() || !content.trim() || overLimit;
-
   return (
     <main className="min-h-full bg-[var(--bg)]">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-        <h1 className="text-4xl font-bold tracking-tight text-stone-800">기존 방송</h1>
+        {demoMode && (
+          <div className="mb-6 space-y-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-base leading-relaxed text-stone-800">
+            <p>
+              체험 모드입니다. 음성 생성과 재생은 로그인 없이 이용할 수 있으며, 저장되지는 않습니다.
+            </p>
+            <p>
+              방송 내용에는 최대 {DEMO_MAX_CHARS.toLocaleString("ko-KR")}자까지만 입력할 수 있습니다.
+            </p>
+            <p>
+              저장·관리가 필요하면{" "}
+              <Link href="/login" className="font-medium text-amber-800 underline underline-offset-2 hover:text-amber-950">
+                로그인
+              </Link>
+              후 이용해 주세요.
+            </p>
+          </div>
+        )}
+        <h1 className="text-4xl font-bold tracking-tight text-stone-800">
+          새 방송 만들기
+        </h1>
+        {!demoMode && (
+          <div className="mt-6 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowLoadModal(true)}
+              className="rounded-lg border border-stone-300 px-4 py-2 text-base font-medium text-stone-700 hover:bg-stone-50"
+            >
+              기존 방송 불러오기
+            </button>
+          </div>
+        )}
 
-        <section className="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+        <section className="mt-2 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
           <h2 className="text-2xl font-semibold text-stone-800">1. 방송 내용 입력</h2>
           <div className="mt-4 space-y-4">
             <div>
@@ -667,33 +637,35 @@ export default function EditBroadcastPage() {
             </div>
             <div>
               <div className="flex items-center justify-between gap-2 text-base font-medium text-stone-700">
-                <span id="edit-broadcast-content-label">
+                <span id="new-broadcast-content-label">
                   방송 내용 ({contentLength.toLocaleString()}
                   {maxChars != null ? ` / ${maxChars.toLocaleString()}` : ""}자)
                 </span>
                 <button
                   type="button"
                   onClick={() => setShowTemplateModal(true)}
-                  className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
+                  className="rounded-lg border border-stone-300 px-3 py-2 text-base font-medium text-stone-700 hover:bg-stone-50"
                 >
                   템플릿 불러오기
                 </button>
               </div>
               <textarea
-                id="edit-broadcast-content"
-                aria-labelledby="edit-broadcast-content-label"
+                id="new-broadcast-content"
+                aria-labelledby="new-broadcast-content-label"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="오늘 마트에서 안내하고 싶은 방송 멘트를 그대로 입력해 주세요."
                 className="mt-1.5 min-h-[360px] w-full rounded-lg border border-stone-200 px-3 py-3 text-base leading-relaxed text-stone-800"
               />
               {overLimit && (
-                <p className="mt-1.5 text-sm leading-relaxed text-red-600">
-                  글자 수 제한을 초과했습니다. 다른 플랜을 구독해 보세요.
+                <p className="mt-1.5 text-base leading-relaxed text-red-600">
+                  {demoMode
+                    ? `체험에서는 최대 ${DEMO_MAX_CHARS.toLocaleString()}자까지 입력할 수 있습니다.`
+                    : "글자 수 제한을 초과했습니다. 다른 플랜을 구독해 보세요."}
                 </p>
               )}
-              {maxChars == null && (
-                <p className="mt-1.5 text-sm leading-relaxed text-stone-500">현재 플랜은 글자 수 제한이 없습니다.</p>
+              {!demoMode && maxChars == null && (
+                <p className="mt-1.5 text-base leading-relaxed text-stone-500">현재 플랜은 글자 수 제한이 없습니다.</p>
               )}
             </div>
           </div>
@@ -709,7 +681,7 @@ export default function EditBroadcastPage() {
 
           <div className="mt-4 space-y-4">
             <div className="flex flex-wrap items-center gap-3 text-base text-stone-700">
-              <span className="text-sm font-semibold text-stone-600">재생 방식</span>
+              <span className="text-base font-semibold text-stone-600">재생 방식</span>
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="radio"
@@ -745,13 +717,13 @@ export default function EditBroadcastPage() {
             </div>
             {youtubeId ? (
               <div className="mt-2 space-y-4">
-                <p className="text-sm leading-relaxed text-stone-600">
+                <p className="text-base leading-relaxed text-stone-600">
                   아래 미리듣기에서 지정한 구간이 제대로 재생되는지 확인해 보세요.
                   <br />
                   유튜브 영상의 원하는 구간만 재생할 수 있습니다.
                 </p>
                 <div className="flex flex-wrap items-center gap-4 text-base text-stone-700">
-                  <span className="text-sm font-semibold text-stone-600">배경 음악 구간</span>
+                  <span className="text-base font-semibold text-stone-600">배경 음악 구간</span>
                   <label className="flex cursor-pointer items-center gap-2">
                     <input
                       type="radio"
@@ -825,10 +797,10 @@ export default function EditBroadcastPage() {
                     </div>
                   </div>
                 )}
-                {bgmError && <p className="text-sm leading-relaxed text-red-600">{bgmError}</p>}
+                {bgmError && <p className="text-base leading-relaxed text-red-600">{bgmError}</p>}
                 <div>
                   <h4 className="text-base font-semibold text-stone-800">음악 볼륨</h4>
-                  <p className="mt-1 text-sm leading-relaxed text-stone-600">
+                  <p className="mt-1 text-base leading-relaxed text-stone-600">
                     방송과 함께 재생되거나 중간에 재생되는 YouTube 구간의 음량입니다.
                   </p>
                   <div className="mt-2 flex items-center gap-3">
@@ -900,7 +872,7 @@ export default function EditBroadcastPage() {
             </div>
 
             <div className="mt-4">
-              <span className="block text-sm font-medium text-stone-600">말하기 속도 {speed.toFixed(1)}x</span>
+              <span className="block text-base font-medium text-stone-600">말하기 속도 {speed.toFixed(1)}x</span>
               <div className="mt-1.5 flex items-center gap-3">
                 <input
                   type="range"
@@ -929,8 +901,8 @@ export default function EditBroadcastPage() {
             </div>
 
             <div className="mt-3">
-              <span className="block text-sm font-medium text-stone-600">줄 사이 쉼</span>
-              <p className="mt-1 text-sm leading-relaxed text-stone-500">
+              <span className="block text-base font-medium text-stone-600">줄 사이 쉼</span>
+              <p className="mt-1 text-base leading-relaxed text-stone-500">
                 방송 내용을 여러 줄로 나눴을 때, 줄과 줄 사이에 넣을 쉼의 길이입니다.
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -1007,11 +979,11 @@ export default function EditBroadcastPage() {
               </div>
               {loopMode === "count" && (
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="repeat-count-edit" className="block text-sm font-medium text-stone-600">
+                  <label htmlFor="repeat-count" className="block text-base font-medium text-stone-600">
                     방송 횟수 (중간음악 모드는 음성+음악 1회 = 1회)
                   </label>
                   <input
-                    id="repeat-count-edit"
+                    id="repeat-count"
                     type="number"
                     min={1}
                     max={999}
@@ -1024,14 +996,14 @@ export default function EditBroadcastPage() {
                 </div>
               )}
               <div>
-                <label htmlFor="gap-seconds-edit" className="text-sm font-medium text-stone-600">
+                <label htmlFor="gap-seconds" className="text-base font-medium text-stone-600">
                   재생 간격 (초)
                 </label>
-                <p className="mt-1 text-sm leading-relaxed text-stone-600">
+                <p className="mt-1 text-base leading-relaxed text-stone-600">
                   방송이 한 번 끝난 뒤 다음 방송까지 기다리는 시간입니다.
                 </p>
                 <input
-                  id="gap-seconds-edit"
+                  id="gap-seconds"
                   type="number"
                   min={0}
                   max={3600}
@@ -1067,7 +1039,7 @@ export default function EditBroadcastPage() {
                   </button>
                 </div>
                 {hasBgm && !ytPlayer.ready && (
-                  <p className="mt-1 text-sm text-stone-600">중간 음악 로딩 중…</p>
+                  <p className="mt-1 text-base text-stone-600">중간 음악 로딩 중…</p>
                 )}
                 {hasAudio && duration > 0 && (
                   <div className="w-full max-w-md">
@@ -1084,7 +1056,7 @@ export default function EditBroadcastPage() {
                       }}
                       className="h-2 w-full accent-amber-500"
                     />
-                    <div className="mt-0.5 flex justify-between text-sm tabular-nums text-stone-600">
+                    <div className="mt-0.5 flex justify-between text-base tabular-nums text-stone-600">
                       <span>
                         {Math.floor(currentTime / 60)}:
                         {String(Math.floor(currentTime % 60)).padStart(2, "0")}
@@ -1105,15 +1077,59 @@ export default function EditBroadcastPage() {
         )}
       </div>
 
+      {showLoadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-5xl rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-2xl font-semibold text-stone-800">기존 방송 불러오기</h2>
+              <button
+                type="button"
+                onClick={() => setShowLoadModal(false)}
+                className="rounded-md border border-stone-300 px-3 py-2 text-base text-stone-700 hover:bg-stone-50"
+              >
+                닫기
+              </button>
+            </div>
+            {savedSessions.length === 0 ? (
+              <p className="mt-4 rounded-xl border border-stone-100 bg-stone-50 px-4 py-8 text-center text-base leading-relaxed text-stone-600">
+                불러올 방송이 없습니다.
+              </p>
+            ) : (
+              <ul className="mt-4 max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+                {savedSessions.map((session) => (
+                  <li key={session.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleLoadSession(session)}
+                      className="w-full rounded-xl border border-stone-200 px-4 py-3.5 text-left hover:border-amber-300 hover:bg-amber-50/40"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate text-base font-medium text-stone-800">
+                          {session.title || "제목 없음"}
+                        </span>
+                        <span className="shrink-0 text-base text-stone-500">불러오기</span>
+                      </div>
+                      <div className="mt-1 text-base text-stone-600">
+                        생성일시 {new Date(session.createdAt).toLocaleString("ko-KR")}
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
       {showTemplateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-5xl rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-2xl font-semibold text-stone-800">템플릿 불러오기</h2>
+              <h2 className="text-xl font-semibold text-stone-800">템플릿 불러오기</h2>
               <button
                 type="button"
                 onClick={() => setShowTemplateModal(false)}
-                className="rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-700 hover:bg-stone-50"
+                className="rounded-md border border-stone-300 px-3 py-2 text-base text-stone-700 hover:bg-stone-50"
               >
                 닫기
               </button>
@@ -1135,7 +1151,7 @@ export default function EditBroadcastPage() {
                       className="w-full rounded-xl border border-stone-200 px-4 py-3.5 text-left hover:border-amber-300 hover:bg-amber-50/40"
                     >
                       <div className="text-base font-medium text-stone-800">{tpl.name}</div>
-                      <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-stone-600">
+                      <p className="mt-1 line-clamp-2 text-base leading-relaxed text-stone-600">
                         {tpl.content}
                       </p>
                     </button>

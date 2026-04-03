@@ -16,7 +16,7 @@ export type GoogleTtsSynthesizeBody = {
   breakSeconds: number;
 };
 
-/** 줄 단위 텍스트에 쉼 적용: 줄 사이에 [pause short] 삽입 (Chirp 3 HD markup) */
+/** Enter로 나눈 줄 사이에 [pause short] / [pause long] 삽입 (Chirp 3 HD markup) */
 export function buildMarkupWithBreaks(text: string, breakSeconds: number): string {
   const lines = text
     .trim()

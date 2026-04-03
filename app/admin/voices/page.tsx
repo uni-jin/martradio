@@ -272,7 +272,7 @@ export default function AdminVoicesPage() {
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-300 bg-slate-50 p-4 shadow-lg">
+          <div className="max-h-[90vh] w-full max-w-7xl overflow-y-auto rounded-2xl border border-slate-300 bg-slate-50 p-4 shadow-lg">
           <h2 className="text-sm font-semibold text-stone-800">{isNew ? "새 템플릿" : "템플릿 수정"}</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block sm:col-span-2">

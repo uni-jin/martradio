@@ -143,8 +143,8 @@ export default function AdminPaymentsPage() {
       "마트명",
       "이름",
       "추천인",
-      "플랜",
-      "플랜 만료일",
+      "구독",
+      "구독 만료일",
       "판매가",
       "결제 금액",
     ];
@@ -314,8 +314,8 @@ export default function AdminPaymentsPage() {
               <th className="whitespace-nowrap px-3 py-2 text-left">마트명</th>
               <th className="whitespace-nowrap px-3 py-2 text-left">이름</th>
               <th className="whitespace-nowrap px-3 py-2 text-left">추천인</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left">플랜</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left">플랜 만료일</th>
+              <th className="whitespace-nowrap px-3 py-2 text-left">구독</th>
+              <th className="whitespace-nowrap px-3 py-2 text-left">구독 만료일</th>
               <th className="whitespace-nowrap px-3 py-2 text-right">판매가</th>
               <th className="whitespace-nowrap px-3 py-2 text-right">결제 금액</th>
             </tr>

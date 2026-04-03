@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  font-size: 108%;
+}
+
 :root {
   --bg: #faf8f5;
   --card: #ffffff;

@@ -43,9 +43,9 @@ export default function AddressSearchFields({
 
   return (
     <div className="space-y-2">
-      <label className="text-sm text-stone-600">
+      <label className="text-base text-stone-600">
         {baseLabel}{" "}
-        <span className="text-xs text-stone-400">(선택)</span>
+        <span className="text-sm text-stone-400">(선택)</span>
       </label>
       <div className="flex flex-wrap items-stretch gap-2">
         <input
@@ -60,7 +60,7 @@ export default function AddressSearchFields({
           type="button"
           onClick={handleSearch}
           disabled={disabled || loading}
-          className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+          className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
         >
           {loading ? "열기 중…" : "주소검색"}
         </button>
@@ -72,7 +72,7 @@ export default function AddressSearchFields({
               onDetailChange("");
             }}
             disabled={disabled}
-            className="shrink-0 rounded-lg border border-stone-200 px-3 py-2 text-xs text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+            className="shrink-0 rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-600 hover:bg-stone-50 disabled:opacity-50"
           >
             주소 초기화
           </button>
@@ -84,11 +84,11 @@ export default function AddressSearchFields({
           value={detailValue}
           onChange={(e) => onDetailChange(e.target.value)}
           placeholder="상세주소 입력"
-          className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+          className="w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
           disabled={disabled}
         />
       </div>
-      {err && <p className="text-xs text-red-600">{err}</p>}
+      {err && <p className="text-sm text-red-600">{err}</p>}
     </div>
   );
 }

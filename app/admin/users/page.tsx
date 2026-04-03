@@ -97,7 +97,7 @@ function buildPlanExcelCell(planInfo: PlanDisplayInfo): string {
       ? getPlanDisplayLabel(planInfo.nextBillingPlanId)
       : null;
     const pay = planLabel ? `${dateStr} · ${planLabel} 결제 예정` : `${dateStr} 결제 예정`;
-    const tag = planInfo.nextBillingPlanChanges ? " [플랜변경예정]" : "";
+    const tag = planInfo.nextBillingPlanChanges ? " [구독변경예정]" : "";
     return `${line1} / ${pay}${tag}`;
   }
   return line1;
@@ -257,7 +257,7 @@ export default function AdminUsersPage() {
       "마트명",
       "이름",
       "회원유형",
-      "이용중 플랜",
+      "이용중 구독",
       "추천인",
     ];
     const rows = filteredUsers.map((u) => {
@@ -408,7 +408,7 @@ export default function AdminUsersPage() {
               <th className="px-3 py-2 text-left">마트명</th>
               <th className="px-3 py-2 text-left">이름</th>
               <th className="px-3 py-2 text-left">회원유형</th>
-              <th className="px-3 py-2 text-left">이용중 플랜</th>
+              <th className="px-3 py-2 text-left">이용중 구독</th>
               <th className="px-3 py-2 text-left">추천인</th>
             </tr>
           </thead>

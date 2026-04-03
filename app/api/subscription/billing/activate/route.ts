@@ -152,6 +152,8 @@ export async function POST(request: NextRequest) {
     customerKey?: unknown;
     authKey?: unknown;
     useExistingBilling?: unknown;
+    /** 클라이언트 프로필의 planId (서버 구독과 불일치 시 잘못된 과금 방지) */
+    profilePlanId?: unknown;
   };
   try {
     body = await request.json();
@@ -172,6 +174,8 @@ export async function POST(request: NextRequest) {
   const customerKey = body.customerKey.trim();
   const authKey = typeof body.authKey === "string" ? body.authKey.trim() : "";
   const useExistingBilling = body.useExistingBilling === true;
+  const profilePlanIdRaw =
+    typeof body.profilePlanId === "string" ? body.profilePlanId.trim() : "";
   const userId = body.userId.trim();
   if (!isValidPublicUserId(userId)) {
     return NextResponse.json({ error: "userId 형식이 올바르지 않습니다." }, { status: 400 });
@@ -283,6 +287,21 @@ export async function POST(request: NextRequest) {
   });
 
   const prev = getSubscriptionStatusByUser(userId);
+  const profilePlanForGuard =
+    profilePlanIdRaw && isPaidPlanId(profilePlanIdRaw) ? profilePlanIdRaw : null;
+  if (
+    profilePlanForGuard &&
+    isPaidPlanDowngrade(profilePlanForGuard, paidPlanId) &&
+    (!prev || prev.planId === "free")
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "서버에 유료 구독 기록이 없어 하위 구독으로의 변경을 처리할 수 없습니다. 구독 관리 화면을 새로고침한 뒤 다시 시도해 주세요.",
+      },
+      { status: 409 }
+    );
+  }
   if (prev && prev.planId !== "free" && isPaidPlanDowngrade(prev.planId, paidPlanId)) {
     try {
       const sub = setScheduledPlanAfterCurrentPeriod(userId, paidPlanId);

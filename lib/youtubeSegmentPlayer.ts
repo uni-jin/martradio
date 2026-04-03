@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useId } from "react";
+import { setYoutubeEmbedIframeVolume } from "@/lib/youtubeEmbedVolume";
 
 export function resolveBgmSeconds(
   startSec: number | null | undefined,
@@ -20,10 +21,7 @@ export type YoutubeSegmentPlayer = {
   ready: boolean;
 };
 
-// NOTE:
-// YouTube Iframe API(YT.Player)는 일부 환경(특히 로컬 개발/프록시/확장)에서
-// postMessage origin mismatch로 제어(pause/stop/volume)가 깨지는 사례가 있다.
-// 이 프로젝트에서는 "JS API 없이 iframe src를 교체"하는 방식으로 재생을 제어한다.
+// NOTE: 재생 시작/구간/정지는 iframe src 교체로 제어한다. 볼륨은 enablejsapi=1 embed에 대해 postMessage(setVolume)로만 조정한다.
 
 export function useYoutubeSegmentPlayer(
   videoId: string | null,
@@ -39,6 +37,7 @@ export function useYoutubeSegmentPlayer(
   const onEndRef = useRef(onSegmentEnd);
   onEndRef.current = onSegmentEnd;
   const endTimerRef = useRef<number | null>(null);
+  const lastVolumeRef = useRef(40);
 
   const isFullPlayback = Boolean(videoId && startSec == null && endSec == null);
   const { start, end } = isFullPlayback ? { start: 0, end: 0 } : resolveBgmSeconds(startSec, endSec);
@@ -104,7 +103,7 @@ export function useYoutubeSegmentPlayer(
     params.set("controls", "0");
     params.set("rel", "0");
     params.set("playsinline", "1");
-    // JS API(enablejsapi)를 쓰지 않아 postMessage/origin 문제를 회피한다.
+    params.set("enablejsapi", "1");
     if (!isFullPlayback) {
       const off = Math.max(0, Number(offsetSeconds) || 0);
       const startAt = start + off;
@@ -117,7 +116,11 @@ export function useYoutubeSegmentPlayer(
       }, ms);
     }
 
-    iframe.src = `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+    const url = `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+    iframe.src = url;
+    iframe.onload = () => {
+      setYoutubeEmbedIframeVolume(iframe, lastVolumeRef.current);
+    };
   }, [videoId, ensureIframe, clearEndTimer, isFullPlayback, start, end]);
 
   const stop = useCallback(() => {
@@ -129,8 +132,10 @@ export function useYoutubeSegmentPlayer(
     destroyIframe();
   }, [destroyIframe]);
 
-  const setVolume = useCallback((_v: number) => {
-    // iframe src 제어 방식에서는 볼륨 제어를 지원하지 않는다.
+  const setVolume = useCallback((v: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(Number(v))));
+    lastVolumeRef.current = clamped;
+    setYoutubeEmbedIframeVolume(iframeRef.current, clamped);
   }, []);
 
   return {

@@ -193,7 +193,7 @@ export default function AdminHomePage() {
             <section className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
               <div className="rounded-xl border border-stone-200 bg-stone-50/50 p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-stone-700">플랜별 회원 수</h2>
+                  <h2 className="text-sm font-semibold text-stone-700">구독별 회원 수</h2>
                   <Link
                     href="/admin/users"
                     className="text-xs font-medium text-slate-800 hover:underline"
@@ -205,7 +205,7 @@ export default function AdminHomePage() {
                   <table className="w-full min-w-[220px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-stone-200 text-xs text-stone-500">
-                        <th className="pb-2 pr-2 font-medium">플랜</th>
+                        <th className="pb-2 pr-2 font-medium">구독</th>
                         <th className="pb-2 font-medium">회원 수</th>
                       </tr>
                     </thead>
@@ -289,7 +289,7 @@ export default function AdminHomePage() {
                         <th className="pb-2 pr-2 font-medium">마트명</th>
                         <th className="pb-2 pr-2 font-medium">이름</th>
                         <th className="pb-2 pr-2 font-medium">추천인</th>
-                        <th className="pb-2 pr-2 font-medium">플랜</th>
+                        <th className="pb-2 pr-2 font-medium">구독</th>
                         <th className="pb-2 font-medium">결제 금액</th>
                       </tr>
                     </thead>

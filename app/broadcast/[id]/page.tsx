@@ -18,7 +18,7 @@ export default function BroadcastDetailPage() {
 
   if (!id) {
     return (
-      <main className="min-h-screen bg-[var(--bg)] p-8">
+      <main className="min-h-full bg-[var(--bg)] p-8">
         <p className="text-stone-500">잘못된 경로입니다.</p>
         <Link href="/" className="mt-2 inline-block text-amber-600 hover:underline">
           ← 첫 화면
@@ -29,7 +29,7 @@ export default function BroadcastDetailPage() {
 
   if (session === null) {
     return (
-      <main className="min-h-screen bg-[var(--bg)] p-8">
+      <main className="min-h-full bg-[var(--bg)] p-8">
         <p className="text-stone-500">방송을 찾을 수 없습니다.</p>
         <Link href="/" className="mt-2 inline-block text-amber-600 hover:underline">
           ← 첫 화면
@@ -39,13 +39,13 @@ export default function BroadcastDetailPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--bg)]">
+    <main className="min-h-full bg-[var(--bg)]">
       <div className="mx-auto max-w-2xl px-4 py-8">
-        <Link href="/" className="text-sm text-stone-500 hover:text-stone-700">
+        <Link href="/" className="text-base text-stone-500 hover:text-stone-700">
           ← 첫 화면으로
         </Link>
-        <h1 className="mt-4 text-2xl font-bold text-stone-800">{session.title}</h1>
-        <div className="mt-2 flex flex-wrap gap-3 text-sm text-stone-500">
+        <h1 className="mt-4 text-3xl font-bold text-stone-800">{session.title}</h1>
+        <div className="mt-2 flex flex-wrap gap-3 text-base text-stone-500">
           {session.lastPlayedAt && (
             <span>마지막 재생 {formatRelativeTime(session.lastPlayedAt)}</span>
           )}
@@ -59,13 +59,13 @@ export default function BroadcastDetailPage() {
         <div className="mt-6 flex gap-3">
           <Link
             href={`/broadcast/${session.id}/play`}
-            className="inline-block rounded-xl bg-amber-500 px-5 py-2.5 font-medium text-white hover:bg-amber-600"
+            className="inline-block rounded-xl bg-amber-500 px-5 py-2.5 text-base font-medium text-white hover:bg-amber-600"
           >
             재생하기
           </Link>
           <Link
             href={`/broadcast/${session.id}/edit`}
-            className="inline-block rounded-xl border border-stone-300 px-5 py-2.5 font-medium text-stone-700 hover:bg-stone-50"
+            className="inline-block rounded-xl border border-stone-300 px-5 py-2.5 text-base font-medium text-stone-700 hover:bg-stone-50"
           >
             수정하기
           </Link>

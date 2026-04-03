@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { appendUserPayment } from "@/lib/adminData";
 import {
@@ -15,6 +16,23 @@ import {
   paidPlanTierRank,
   type PaidPlanId,
 } from "@/lib/subscriptionPlans";
+import { SubscriptionFlowDialog } from "@/app/_components/SubscriptionFlowDialog";
+import { SubscriptionGuideSection } from "@/app/_components/SubscriptionGuideSection";
+
+type PricingFlowState =
+  | null
+  | {
+      variant: "notify";
+      title: string;
+      message: string;
+      afterDismiss?: () => void;
+    }
+  | {
+      variant: "confirm";
+      title: string;
+      message: string;
+      onConfirm: () => void | Promise<void>;
+    };
 
 function isPaidPlanId(planId: string | null | undefined): planId is PaidPlanId {
   return planId === "small" || planId === "medium" || planId === "large";
@@ -50,20 +68,28 @@ const PLANS: {
 }[] = [
   {
     id: "free",
-    name: "무료",
-    features: ["방송 글자 수 제한: 50자", "기존 방송 저장 수: 1개"],
+    name: "무료 방송",
+    features: ["방송 글자 수 제한: 100자", "기존 방송 저장 수: 1개"],
     price: "무료",
   },
   {
     id: "small",
-    name: "기본 플랜",
-    features: ["방송 글자 수 제한: 500자", "기존 방송 저장 수: 5개"],
+    name: "기본 방송",
+    features: [
+      "방송 글자 수 제한: 500자",
+      "기존 방송 저장 수: 5개",
+      "유료 템플릿·유료 음성 사용 가능",
+    ],
     price: "월 9,900원",
   },
   {
     id: "large",
-    name: "무제한 플랜",
-    features: ["방송 글자 수 제한: 무제한", "기존 방송 저장 수: 무제한"],
+    name: "무제한 방송",
+    features: [
+      "방송 글자 수 제한: 무제한",
+      "기존 방송 저장 수: 무제한",
+      "유료 템플릿·유료 음성 사용 가능",
+    ],
     price: "월 19,900원",
   },
 ];
@@ -77,6 +103,7 @@ type ServerSubscriptionSnapshot = {
 } | null;
 
 export default function PricingPage() {
+  const router = useRouter();
   const [currentPlan, setCurrentPlan] = useState<PlanId | undefined>(undefined);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [pendingPlan, setPendingPlan] = useState<PlanId | null>(null);
@@ -86,6 +113,8 @@ export default function PricingPage() {
   const [serverSubscription, setServerSubscription] = useState<ServerSubscriptionSnapshot>(null);
   const [hasBillingMethod, setHasBillingMethod] = useState(false);
   const [isCancellingScheduled, setIsCancellingScheduled] = useState(false);
+  const [pricingFlow, setPricingFlow] = useState<PricingFlowState>(null);
+  const [pricingFlowBusy, setPricingFlowBusy] = useState(false);
   const handledCheckoutRef = useRef(false);
 
   const refreshServerSubscription = useCallback(async () => {
@@ -114,11 +143,12 @@ export default function PricingPage() {
     }
   }, []);
 
-  const cancelScheduledReservation = useCallback(async (): Promise<boolean> => {
+  const cancelScheduledPlanRequest = useCallback(async (): Promise<
+    { ok: true } | { ok: false; message: string }
+  > => {
     const user = getCurrentUser();
     if (!user?.id) {
-      window.alert("로그인 정보를 찾을 수 없습니다.");
-      return false;
+      return { ok: false, message: "로그인 정보를 찾을 수 없습니다." };
     }
     try {
       const res = await fetch("/api/subscription/cancel-scheduled-plan", {
@@ -128,16 +158,18 @@ export default function PricingPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        throw new Error(
-          typeof data.error === "string" ? data.error : "예약 취소에 실패했습니다."
-        );
+        return {
+          ok: false,
+          message: typeof data.error === "string" ? data.error : "예약 취소에 실패했습니다.",
+        };
       }
       await refreshServerSubscription();
-      window.alert("플랜 변경 예약이 취소되었습니다. 다음 결제일에도 현재 플랜이 유지됩니다.");
-      return true;
+      return { ok: true };
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : "예약 취소에 실패했습니다.");
-      return false;
+      return {
+        ok: false,
+        message: e instanceof Error ? e.message : "예약 취소에 실패했습니다.",
+      };
     }
   }, [refreshServerSubscription]);
 
@@ -172,7 +204,7 @@ export default function PricingPage() {
     if (checkout === "fail" || checkout === "billing_fail") {
       const msg = url.searchParams.get("message") || "결제가 취소되었거나 실패했습니다.";
       clearQuery();
-      window.alert(msg);
+      setPricingFlow({ variant: "notify", title: "안내", message: msg });
       return;
     }
 
@@ -189,7 +221,11 @@ export default function PricingPage() {
       const successGuardKey = "mart-radio-pricing-last-billing-success-token";
       if (!isPaidPlanId(planId) || !customerKey || !authKey) {
         clearQuery();
-        window.alert("카드 등록 완료 정보가 올바르지 않습니다.");
+        setPricingFlow({
+          variant: "notify",
+          title: "오류",
+          message: "카드 등록 완료 정보가 올바르지 않습니다.",
+        });
         return;
       }
       if (window.sessionStorage.getItem(successGuardKey) === successToken) {
@@ -204,10 +240,11 @@ export default function PricingPage() {
         try {
           const user = getCurrentUser();
           if (!user?.id) throw new Error("로그인 정보를 찾을 수 없습니다.");
+          const profilePlanId = getCurrentUser()?.planId ?? "free";
           const activateRes = await fetch("/api/subscription/billing/activate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId: user.id, planId, customerKey, authKey }),
+            body: JSON.stringify({ userId: user.id, planId, customerKey, authKey, profilePlanId }),
           });
           const activateData = await activateRes.json().catch(() => ({}));
           if (!activateRes.ok || !activateData.ok) {
@@ -220,10 +257,12 @@ export default function PricingPage() {
           const before = getCurrentUser();
           if (activateData.kind === "scheduled_downgrade") {
             await refreshServerSubscription();
-            window.alert(
-              `${getPlanLabel(planId, false)}(으)로 변경이 예약되었습니다.\n` +
-                "이번 이용 기간까지는 현재 플랜이 유지되며, 추가 카드 입력 없이 다음 결제일부터 적용됩니다."
-            );
+            setPricingFlow({
+              variant: "notify",
+              title: "완료",
+              message: `${getPlanLabel(planId, false)}(으)로 변경이 예약되었습니다.\n다음 결제일부터 적용됩니다.`,
+              afterDismiss: () => router.push("/subscription"),
+            });
           } else {
             const updated = updateCurrentUserPlan(planId);
             if (before) {
@@ -246,16 +285,20 @@ export default function PricingPage() {
               });
             }
             setCurrentPlan(updated?.planId);
-            window.alert(
-              activateData.kind === "upgrade"
-                ? `${getPlanLabel(planId, false)}(으)로 업그레이드되었습니다.\n등록하신 카드로 차액이 결제되었습니다.`
-                : `${getPlanLabel(planId, false)} 구독이 시작되었습니다.`
-            );
+            await refreshServerSubscription();
+            setPricingFlow({
+              variant: "notify",
+              title: "완료",
+              message:
+                activateData.kind === "upgrade"
+                  ? `${getPlanLabel(planId, false)}(으)로 업그레이드되었습니다.`
+                  : `${getPlanLabel(planId, false)} 구독이 반영되었습니다.`,
+              afterDismiss: () => router.push("/subscription"),
+            });
           }
-          await refreshServerSubscription();
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          window.alert(msg);
+          setPricingFlow({ variant: "notify", title: "오류", message: msg });
         } finally {
           clearQuery();
         }
@@ -274,7 +317,11 @@ export default function PricingPage() {
 
     if (!isPaidPlanId(planId) || !paymentKey || !orderId || !Number.isFinite(amount)) {
       clearQuery();
-      window.alert("결제 완료 정보가 올바르지 않습니다.");
+      setPricingFlow({
+        variant: "notify",
+        title: "오류",
+        message: "결제 완료 정보가 올바르지 않습니다.",
+      });
       return;
     }
     if (window.sessionStorage.getItem(successGuardKey) === successToken) {
@@ -320,17 +367,22 @@ export default function PricingPage() {
           });
         }
         setCurrentPlan(updated?.planId);
-        window.alert(`${getPlanLabel(planId, false)} 구독이 시작되었습니다.`);
         await refreshServerSubscription();
+        setPricingFlow({
+          variant: "notify",
+          title: "완료",
+          message: `${getPlanLabel(planId, false)} 구독이 반영되었습니다.`,
+          afterDismiss: () => router.push("/subscription"),
+        });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        window.alert(msg);
+        setPricingFlow({ variant: "notify", title: "오류", message: msg });
       } finally {
         clearQuery();
       }
     };
     void run();
-  }, [refreshServerSubscription]);
+  }, [refreshServerSubscription, router]);
 
   const displayCurrentPlanId = useMemo((): PlanId => {
     const sid = serverSubscription?.planId;
@@ -351,32 +403,50 @@ export default function PricingPage() {
       return;
     }
     if (!userEmail) {
-      setMessage("로그인 후 플랜을 선택할 수 있습니다.");
+      setMessage("로그인 후 구독 상품을 선택할 수 있습니다.");
       return;
     }
     if (isCancellingScheduled) return;
 
     const scheduled = serverSubscription?.scheduledPlanAfterPeriod;
+    if (typeof scheduled === "string" && isPaidPlanId(scheduled) && planId === scheduled) {
+      setPricingFlow({
+        variant: "notify",
+        title: "안내",
+        message: `${getPlanLabel(planId, false)}(으)로 변경 예정입니다.\n다음 결제일부터 적용됩니다.`,
+      });
+      return;
+    }
+
     if (
       planId === displayCurrentPlanId &&
       typeof scheduled === "string" &&
       isPaidPlanId(scheduled)
     ) {
-      if (
-        !window.confirm(
-          `다음 결제일부터 ${getPlanLabel(scheduled, false)} 플랜으로 바뀌는 예약이 있습니다. 예약을 취소하고 현재 플랜을 유지할까요?`
-        )
-      ) {
-        return;
-      }
-      void (async () => {
-        setIsCancellingScheduled(true);
-        try {
-          await cancelScheduledReservation();
-        } finally {
-          setIsCancellingScheduled(false);
-        }
-      })();
+      setPricingFlow({
+        variant: "confirm",
+        title: "예약 취소",
+        message: `다음 결제일부터 ${getPlanLabel(scheduled, false)} 구독으로 바뀌는 예약을 취소할까요?`,
+        onConfirm: async () => {
+          setPricingFlowBusy(true);
+          setIsCancellingScheduled(true);
+          try {
+            const r = await cancelScheduledPlanRequest();
+            setPricingFlow(
+              r.ok
+                ? {
+                    variant: "notify",
+                    title: "완료",
+                    message: "예약이 취소되었습니다. 현재 구독이 유지됩니다.",
+                  }
+                : { variant: "notify", title: "오류", message: r.message }
+            );
+          } finally {
+            setPricingFlowBusy(false);
+            setIsCancellingScheduled(false);
+          }
+        },
+      });
       return;
     }
 
@@ -417,7 +487,11 @@ export default function PricingPage() {
     if (!pendingPlan) return;
     const user = getCurrentUser();
     if (!user?.id) {
-      window.alert("로그인 정보를 찾을 수 없습니다.");
+      setPricingFlow({
+        variant: "notify",
+        title: "안내",
+        message: "로그인 정보를 찾을 수 없습니다.",
+      });
       return;
     }
     const customerKey = `mart_${user.id}`;
@@ -426,107 +500,113 @@ export default function PricingPage() {
     if (effectivePaidPlanId && chosenPlan === effectivePaidPlanId) {
       const scheduled = serverSubscription?.scheduledPlanAfterPeriod;
       if (typeof scheduled === "string" && isPaidPlanId(scheduled)) {
-        if (
-          !window.confirm(
-            `다음 결제일부터 ${getPlanLabel(scheduled, false)} 플랜으로 바뀌는 예약이 있습니다. 예약을 취소하고 현재 플랜을 유지할까요?`
-          )
-        ) {
-          return;
-        }
-        setIsProcessingCheckout(true);
-        try {
-          const ok = await cancelScheduledReservation();
-          if (ok) {
-            setPendingPlan(null);
-          }
-        } finally {
-          setIsProcessingCheckout(false);
-        }
+        setPricingFlow({
+          variant: "confirm",
+          title: "예약 취소",
+          message: `다음 결제일부터 ${getPlanLabel(scheduled, false)} 구독으로 바뀌는 예약을 취소할까요?`,
+          onConfirm: async () => {
+            setPricingFlowBusy(true);
+            setIsProcessingCheckout(true);
+            try {
+              const r = await cancelScheduledPlanRequest();
+              if (r.ok) {
+                setPendingPlan(null);
+                setPricingFlow({
+                  variant: "notify",
+                  title: "완료",
+                  message: "예약이 취소되었습니다. 현재 구독이 유지됩니다.",
+                });
+              } else {
+                setPricingFlow({ variant: "notify", title: "오류", message: r.message });
+              }
+            } finally {
+              setPricingFlowBusy(false);
+              setIsProcessingCheckout(false);
+            }
+          },
+        });
         return;
       }
-      window.alert("이미 해당 플랜을 이용 중입니다.");
+      setPricingFlow({
+        variant: "notify",
+        title: "안내",
+        message: "이미 해당 구독을 이용 중입니다.",
+      });
       return;
     }
 
     if (!serverLoaded) {
-      window.alert("구독 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
+      setPricingFlow({
+        variant: "notify",
+        title: "안내",
+        message: "구독 정보를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.",
+      });
       return;
     }
 
     const useStored = canUseStoredBilling && effectivePaidPlanId;
 
-    if (useStored) {
-      const lines: string[] = [
-        "등록하신 카드로 처리합니다. 카드 번호를 다시 입력하지 않습니다.",
-        "",
-      ];
-      if (modalHint?.kind === "upgrade") {
-        lines.push(
-          "즉시 상위 플랜이 적용되며, 남은 기간에 대한 차액이 일할 계산되어 결제됩니다.",
-          modalHint.estimateKrw !== null
-            ? `(예상 결제액: ${new Intl.NumberFormat("ko-KR").format(modalHint.estimateKrw)}원, 실제는 승인 시점 기준)`
-            : ""
-        );
-      } else if (modalHint?.kind === "downgrade") {
-        lines.push(
-          "이번 이용 기간까지는 현재 플랜이 유지됩니다.",
-          "추가 결제는 없으며, 다음 결제일부터 선택하신 하위 플랜 요금이 청구됩니다."
-        );
-      }
-      lines.push("", "위 내용대로 진행할까요?");
-      if (!window.confirm(lines.filter(Boolean).join("\n"))) return;
-    }
-
-    setIsProcessingCheckout(true);
     try {
       if (useStored) {
-        const activateRes = await fetch("/api/subscription/billing/activate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId: user.id,
-            planId: chosenPlan,
-            customerKey,
-            useExistingBilling: true,
-          }),
-        });
-        const activateData = await activateRes.json().catch(() => ({}));
-        if (!activateRes.ok || !activateData.ok) {
-          throw new Error(
-            typeof activateData.error === "string"
-              ? activateData.error
-              : "플랜 변경에 실패했습니다."
-          );
-        }
-        setPendingPlan(null);
-        await refreshServerSubscription();
-        if (activateData.kind === "scheduled_downgrade") {
-          window.alert(
-            `${getPlanLabel(chosenPlan, false)}(으)로 변경이 예약되었습니다.\n` +
-              "이번 기간까지 현재 플랜이 유지되며, 다음 결제일부터 적용됩니다."
-          );
-        } else {
-          const before = getCurrentUser();
-          const updated = updateCurrentUserPlan(chosenPlan);
-          if (before && typeof activateData.amount === "number" && activateData.amount > 0) {
-            const stored = getStoredUserForCurrentSession();
-            appendUserPayment({
-              userId: before.id,
-              username: before.email,
-              productId: chosenPlan,
-              amount: activateData.amount,
-              referrerId: stored?.referrerId ?? null,
-              source: "web_checkout",
-              paymentKey:
-                typeof activateData.paymentKey === "string" ? activateData.paymentKey : null,
-              orderId: typeof activateData.orderId === "string" ? activateData.orderId : null,
-              status: "DONE",
+        setIsProcessingCheckout(true);
+        try {
+          const profilePlanId = getCurrentUser()?.planId ?? "free";
+          const activateRes = await fetch("/api/subscription/billing/activate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: user.id,
+              planId: chosenPlan,
+              customerKey,
+              useExistingBilling: true,
+              profilePlanId,
+            }),
+          });
+          const activateData = await activateRes.json().catch(() => ({}));
+          if (!activateRes.ok || !activateData.ok) {
+            throw new Error(
+              typeof activateData.error === "string"
+                ? activateData.error
+                : "구독 변경에 실패했습니다."
+            );
+          }
+          setPendingPlan(null);
+          await refreshServerSubscription();
+          if (activateData.kind === "scheduled_downgrade") {
+            setPricingFlow({
+              variant: "notify",
+              title: "완료",
+              message: `${getPlanLabel(chosenPlan, false)}(으)로 변경이 예약되었습니다.\n다음 결제일부터 적용됩니다.`,
+              afterDismiss: () => router.push("/subscription"),
+            });
+          } else {
+            const before = getCurrentUser();
+            const updated = updateCurrentUserPlan(chosenPlan);
+            if (before && typeof activateData.amount === "number" && activateData.amount > 0) {
+              const stored = getStoredUserForCurrentSession();
+              appendUserPayment({
+                userId: before.id,
+                username: before.email,
+                productId: chosenPlan,
+                amount: activateData.amount,
+                referrerId: stored?.referrerId ?? null,
+                source: "web_checkout",
+                paymentKey:
+                  typeof activateData.paymentKey === "string" ? activateData.paymentKey : null,
+                orderId: typeof activateData.orderId === "string" ? activateData.orderId : null,
+                status: "DONE",
+              });
+            }
+            setCurrentPlan(updated?.planId);
+            setPricingFlow({
+              variant: "notify",
+              title: "완료",
+              message: `${getPlanLabel(chosenPlan, false)}(으)로 변경되었습니다.`,
+              afterDismiss: () => router.push("/subscription"),
             });
           }
-          setCurrentPlan(updated?.planId);
-          window.alert(
-            `${getPlanLabel(chosenPlan, false)}(으)로 변경되었습니다.\n등록하신 카드로 결제가 완료되었습니다.`
-          );
+        } finally {
+          setIsProcessingCheckout(false);
         }
         return;
       }
@@ -536,31 +616,38 @@ export default function PricingPage() {
         throw new Error("NEXT_PUBLIC_TOSS_CLIENT_KEY가 설정되지 않았습니다.");
       }
 
-      await loadTossPaymentsScript();
-      const tossCtor = (window as unknown as { TossPayments?: (clientKey: string) => any }).TossPayments;
-      if (!tossCtor) throw new Error("토스 결제 객체를 불러오지 못했습니다.");
-      const toss = tossCtor(tossClientKey);
-
-      const origin = window.location.origin;
-      if (
-        !window.confirm(
-          "토스 화면에서 카드 정보를 입력합니다.\n최초 구독이거나 결제 수단을 새로 등록할 때만 필요합니다."
-        )
-      ) {
-        return;
-      }
-      await toss.requestBillingAuth("카드", {
-        customerKey,
-        customerEmail: userEmail ?? undefined,
-        customerName: userEmail ?? "마트방송 사용자",
-        successUrl: `${origin}/pricing?checkout=billing_success&planId=${chosenPlan}`,
-        failUrl: `${origin}/pricing?checkout=billing_fail`,
+      setPricingFlow({
+        variant: "confirm",
+        title: "카드 등록",
+        message: "토스 화면에서 카드 정보를 입력합니다. 계속하시겠습니까?",
+        onConfirm: async () => {
+          setPricingFlow(null);
+          setIsProcessingCheckout(true);
+          try {
+            await loadTossPaymentsScript();
+            const tossCtor = (window as unknown as { TossPayments?: (clientKey: string) => any })
+              .TossPayments;
+            if (!tossCtor) throw new Error("토스 결제 객체를 불러오지 못했습니다.");
+            const toss = tossCtor(tossClientKey);
+            const origin = window.location.origin;
+            await toss.requestBillingAuth("카드", {
+              customerKey,
+              customerEmail: userEmail ?? undefined,
+              customerName: userEmail ?? "마트방송 사용자",
+              successUrl: `${origin}/pricing?checkout=billing_success&planId=${chosenPlan}`,
+              failUrl: `${origin}/pricing?checkout=billing_fail`,
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            setPricingFlow({ variant: "notify", title: "오류", message: msg });
+          } finally {
+            setIsProcessingCheckout(false);
+          }
+        },
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      window.alert(msg);
-    } finally {
-      setIsProcessingCheckout(false);
+      setPricingFlow({ variant: "notify", title: "오류", message: msg });
     }
   };
 
@@ -568,57 +655,15 @@ export default function PricingPage() {
     setPendingPlan(null);
   };
 
-  const handleCancelScheduledFromBanner = () => {
-    if (isCancellingScheduled) return;
-    if (
-      !window.confirm(
-        "다음 결제일부터 적용 예정이던 플랜 변경을 취소할까요?\n이번 이용 기간이 끝난 뒤에도 현재 플랜이 유지됩니다."
-      )
-    ) {
-      return;
-    }
-    void (async () => {
-      setIsCancellingScheduled(true);
-      try {
-        await cancelScheduledReservation();
-      } finally {
-        setIsCancellingScheduled(false);
-      }
-    })();
-  };
-
   const scheduledTargetId = serverSubscription?.scheduledPlanAfterPeriod;
-  const scheduledTargetLabel =
-    scheduledTargetId && isPaidPlanId(scheduledTargetId)
-      ? getPlanLabel(scheduledTargetId, false)
-      : null;
 
   return (
-    <main className="min-h-screen bg-[var(--bg)]">
+    <main className="min-h-full bg-[var(--bg)]">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-        <h1 className="text-2xl font-bold text-stone-800">플랜 구독</h1>
-
-        {scheduledTargetLabel && (
-          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="font-medium">다음 결제일부터 플랜 변경 예정</p>
-              <p className="mt-1 text-amber-800">
-                {scheduledTargetLabel} 플랜으로 갱신됩니다. 이번 이용 기간까지는 현재 플랜 혜택이 유지됩니다.
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={isCancellingScheduled || !serverLoaded}
-              onClick={handleCancelScheduledFromBanner}
-              className="shrink-0 rounded-full border border-amber-400 bg-white px-4 py-2 text-xs font-medium text-amber-900 shadow-sm hover:bg-amber-100 disabled:opacity-50"
-            >
-              {isCancellingScheduled ? "처리 중..." : "플랜 변경 예약 취소"}
-            </button>
-          </div>
-        )}
+        <h1 className="text-3xl font-bold text-stone-800">구독</h1>
 
         {message && (
-          <p className="mt-3 text-sm text-amber-800" role="status">
+          <p className="mt-3 text-base text-amber-800" role="status">
             {message}
           </p>
         )}
@@ -627,6 +672,10 @@ export default function PricingPage() {
           {PLANS.map((plan) => {
             const isCurrent = plan.id === displayCurrentPlanId;
             const isFreePlan = plan.id === "free";
+            const isScheduledTarget =
+              Boolean(scheduledTargetId) &&
+              isPaidPlanId(scheduledTargetId) &&
+              plan.id === scheduledTargetId;
             const content = (
               <div className="flex items-center justify-between gap-6">
                 <div className="min-w-0">
@@ -634,7 +683,12 @@ export default function PricingPage() {
                     <h2 className="text-xl font-semibold text-stone-800">{plan.name}</h2>
                     {isCurrent && (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                        현재 플랜
+                        현재 구독
+                      </span>
+                    )}
+                    {isScheduledTarget && (
+                      <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-900">
+                        변경 예정
                       </span>
                     )}
                   </div>
@@ -652,9 +706,7 @@ export default function PricingPage() {
               return (
                 <div
                   key={plan.id}
-                  className={`h-36 w-full rounded-2xl border p-5 text-sm shadow-sm ${
-                    isCurrent ? "border-amber-500 bg-amber-50" : "border-stone-200 bg-white"
-                  }`}
+                  className="min-h-[9rem] w-full rounded-2xl border border-stone-200 bg-white p-5 text-base shadow-sm"
                 >
                   {content}
                 </div>
@@ -667,11 +719,7 @@ export default function PricingPage() {
                 type="button"
                 disabled={isCancellingScheduled}
                 onClick={() => handleSelectPlan(plan.id)}
-                className={`block h-36 w-full text-left rounded-2xl border p-5 text-sm shadow-sm transition disabled:opacity-60 ${
-                  isCurrent
-                    ? "border-amber-500 bg-amber-50"
-                    : "border-stone-200 bg-white hover:border-amber-300 hover:bg-amber-50/40"
-                }`}
+                className="block min-h-[9rem] w-full rounded-2xl border border-stone-200 bg-white p-5 text-left text-base shadow-sm transition hover:border-amber-300 hover:bg-amber-50/40 disabled:opacity-60"
               >
                 {content}
               </button>
@@ -679,64 +727,30 @@ export default function PricingPage() {
           })}
         </section>
 
-        <section className="mt-8 text-xs text-stone-700">
-          <h2 className="font-semibold text-stone-800">구독 안내</h2>
+        <SubscriptionGuideSection />
 
-          <div className="mt-4 space-y-4 text-xs leading-relaxed text-stone-700">
-            <div>
-              <h3 className="font-semibold text-stone-800">1. 결제 및 갱신</h3>
-              <p className="mt-1">유료 플랜은 월 구독 형태로 제공됩니다.</p>
-              <p>구독 요금은 매월 동일한 날짜에 자동 결제됩니다.</p>
-              <p>(예: 3월 5일 결제 → 4월 5일 자동 결제)</p>
-              <p>구독은 해지하지 않는 한 자동으로 갱신됩니다.</p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-stone-800">2. 플랜 변경 (업그레이드 / 다운그레이드)</h3>
-              <p className="mt-1">1) 상위 플랜으로 변경 (기본 → 무제한)</p>
-              <p>즉시 상위 플랜이 적용됩니다.</p>
-              <p>남은 기간에 대해 차액이 일할 계산되어 추가 결제됩니다.</p>
-              <p className="mt-1">등록된 카드가 있으면 카드 번호를 다시 입력하지 않고 결제됩니다.</p>
-              <p className="mt-1">2) 하위 플랜으로 변경 (무제한 → 기본)</p>
-              <p>다음 결제일부터 하위 플랜이 적용됩니다.</p>
-              <p>현재 이용 기간 동안은 기존 플랜이 유지됩니다.</p>
-              <p>추가 결제 없이 예약만 하며, 등록된 카드가 있으면 카드 입력 없이 처리됩니다.</p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-stone-800">3. 해지 정책</h3>
-              <p className="mt-1">구독은 언제든지 해지할 수 있습니다.</p>
-              <p>해지 시 다음 결제일부터 요금이 청구되지 않습니다.</p>
-              <p>예약된 하위 플랜 변경이 있으면 해지와 함께 취소됩니다.</p>
-              <p>해지 후에도 현재 결제 기간 종료일까지는 서비스를 이용할 수 있습니다.</p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-stone-800">4. 환불 정책</h3>
-              <p className="mt-1">결제 완료 후 환불은 제공되지 않습니다.</p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-stone-800">5. 사용 제한 안내</h3>
-              <p className="mt-1">
-                각 요금제에 따라 방송 글자 수 및 저장 가능한 방송 수에 제한이 있습니다.
-              </p>
-              <p>제한 초과 시 추가 생성 또는 저장이 불가할 수 있습니다.</p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-stone-800">6. 데이터 보관</h3>
-              <p className="mt-1">플랜 변경 또는 해지 시 저장된 방송이 일부 제한될 수 있습니다.</p>
-              <p>(예: 저장 개수 제한 초과 시 일부 방송이 비활성화될 수 있음)</p>
-            </div>
-          </div>
-        </section>
+        {pricingFlow && (
+          <SubscriptionFlowDialog
+            open
+            variant={pricingFlow.variant}
+            title={pricingFlow.title}
+            message={pricingFlow.message}
+            confirmBusy={pricingFlow.variant === "confirm" ? pricingFlowBusy : false}
+            onDismiss={() => {
+              if (pricingFlow.variant === "notify" && pricingFlow.afterDismiss) {
+                pricingFlow.afterDismiss();
+              }
+              setPricingFlow(null);
+            }}
+            onConfirm={pricingFlow.variant === "confirm" ? pricingFlow.onConfirm : undefined}
+          />
+        )}
 
         {pendingPlan && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-lg">
-              <h2 className="text-lg font-semibold text-stone-800">플랜 변경 확인</h2>
-              <p className="mt-2 text-sm text-stone-600">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-lg">
+              <h2 className="text-xl font-semibold text-stone-800">구독 변경 확인</h2>
+              <p className="mt-2 text-base leading-relaxed text-stone-600">
                 <span className="font-medium text-amber-700">{getPlanLabel(pendingPlan, false)}</span>
                 {effectivePaidPlanId && modalHint?.kind !== "same" ? (
                   <>
@@ -748,33 +762,32 @@ export default function PricingPage() {
                 )}
               </p>
               {canUseStoredBilling && effectivePaidPlanId && modalHint?.kind === "upgrade" && (
-                <ul className="mt-3 list-inside list-disc space-y-1 text-xs text-stone-600">
-                  <li>등록된 카드로만 결제합니다. 카드 번호를 다시 입력하지 않습니다.</li>
-                  <li>즉시 상위 플랜이 적용되고, 남은 기간 일할 차액이 청구됩니다.</li>
+                <p className="mt-3 text-sm leading-relaxed text-stone-600">
+                  등록된 카드로 즉시 적용되며 일할 차액이 청구됩니다.
                   {modalHint.estimateKrw !== null && (
-                    <li>예상 결제액: {new Intl.NumberFormat("ko-KR").format(modalHint.estimateKrw)}원</li>
+                    <>
+                      {" "}
+                      (예상 {new Intl.NumberFormat("ko-KR").format(modalHint.estimateKrw)}원)
+                    </>
                   )}
-                </ul>
-              )}
-              {canUseStoredBilling && effectivePaidPlanId && modalHint?.kind === "downgrade" && (
-                <ul className="mt-3 list-inside list-disc space-y-1 text-xs text-stone-600">
-                  <li>등록된 카드 정보를 다시 입력하지 않습니다.</li>
-                  <li>지금은 추가 결제가 없습니다.</li>
-                  <li>이번 이용 기간까지 현재 플랜이 유지됩니다.</li>
-                  <li>다음 결제일부터 선택하신 플랜 요금이 청구됩니다.</li>
-                </ul>
-              )}
-              {!canUseStoredBilling && effectivePaidPlanId && (
-                <p className="mt-3 text-xs text-stone-500">
-                  결제 수단이 없거나 최초 구독인 경우, 다음 단계에서 토스 화면으로 카드 정보를 입력합니다.
                 </p>
               )}
-              <div className="mt-4 flex justify-end gap-2 text-xs">
+              {canUseStoredBilling && effectivePaidPlanId && modalHint?.kind === "downgrade" && (
+                <p className="mt-3 text-sm leading-relaxed text-stone-600">
+                  추가 결제 없이 예약되며, 이번 기간까지 현재 구독이 유지됩니다. 다음 결제일부터 선택한 요금이 적용됩니다.
+                </p>
+              )}
+              {!canUseStoredBilling && effectivePaidPlanId && (
+                <p className="mt-3 text-sm text-stone-500">
+                  다음 단계에서 토스 화면으로 카드 정보를 입력합니다.
+                </p>
+              )}
+              <div className="mt-4 flex justify-end gap-2 text-sm">
                 <button
                   type="button"
                   disabled={isProcessingCheckout || !serverLoaded}
                   onClick={handleCancelModal}
-                  className="rounded-full border border-stone-300 px-3 py-1 text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+                  className="rounded-full border border-stone-300 px-4 py-2 text-stone-600 hover:bg-stone-50 disabled:opacity-50"
                 >
                   닫기
                 </button>
@@ -782,7 +795,7 @@ export default function PricingPage() {
                   type="button"
                   disabled={isProcessingCheckout || !serverLoaded}
                   onClick={handleConfirmPlan}
-                  className="rounded-full bg-amber-500 px-3 py-1 font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+                  className="rounded-full bg-cta px-4 py-2 font-semibold text-white shadow-sm hover:bg-cta-hover disabled:opacity-50"
                 >
                   {isProcessingCheckout ? "처리 중..." : "진행"}
                 </button>

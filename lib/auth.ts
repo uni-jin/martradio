@@ -190,18 +190,18 @@ export function getPlanLabel(planId: PlanId | undefined, isUnlimited: boolean | 
   void isUnlimited;
   switch (planId) {
     case "small":
-      return "기본 플랜";
+      return "기본 방송";
     case "medium":
-      return "기본 플랜";
+      return "기본 방송";
     case "large":
-      return "무제한 플랜";
+      return "무제한 방송";
     case "free":
     default:
-      return "무료";
+      return "무료 방송";
   }
 }
 
-/** 관리자·목록 등에서 planId 문자열을 사용자 화면과 동일한 한글 플랜명으로 표시 */
+/** 관리자·목록 등에서 planId 문자열을 사용자·관리자와 동일한 한글 상품 표시명으로 표시 */
 export function getPlanDisplayLabel(planId: string | undefined | null): string {
   const raw = typeof planId === "string" && planId.trim() ? planId.trim() : "free";
   if (raw === "free" || raw === "small" || raw === "medium" || raw === "large") {
@@ -212,12 +212,12 @@ export function getPlanDisplayLabel(planId: string | undefined | null): string {
 
 export function getPricingCtaLabel(planId: PlanId | undefined): string {
   const tier = planId ?? "free";
-  if (tier === "free" || tier === "large") return "플랜 구독";
-  return "플랜 업그레이드";
+  if (tier === "free" || tier === "large") return "구독";
+  return "구독 업그레이드";
 }
 
 export function getMaxCharsForUser(user: AuthUser | null): number | null {
-  if (!user) return 50;
+  if (!user) return 100;
   const plan = user.planId ?? "free";
   if (typeof window !== "undefined") {
     try {
@@ -238,7 +238,7 @@ export function getMaxCharsForUser(user: AuthUser | null): number | null {
   }
   switch (plan) {
     case "free":
-      return 50;
+      return 100;
     case "small":
       return 500;
     case "medium":
@@ -246,7 +246,7 @@ export function getMaxCharsForUser(user: AuthUser | null): number | null {
     case "large":
       return null;
     default:
-      return 50;
+      return 100;
   }
 }
 
