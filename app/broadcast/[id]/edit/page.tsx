@@ -929,9 +929,9 @@ export default function EditBroadcastPage() {
             </div>
 
             <div className="mt-3">
-              <span className="block text-sm font-medium text-stone-600">줄 사이 쉼</span>
+              <span className="block text-sm font-medium text-stone-600">줄 간격 시간</span>
               <p className="mt-1 text-sm leading-relaxed text-stone-500">
-                방송 내용을 여러 줄로 나눴을 때, 줄과 줄 사이에 넣을 쉼의 길이입니다.
+                방송 내용을 여러 줄로 나눴을 때, 줄과 줄 사이의 간격 시간입니다.
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {TTS_LINE_BREAK_PAUSE_OPTIONS.map((o) => (
@@ -1123,19 +1123,19 @@ export default function EditBroadcastPage() {
                 사용 가능한 템플릿이 없습니다.
               </p>
             ) : (
-              <ul className="mt-4 max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+              <ul className="mt-4 grid max-h-[60vh] grid-cols-1 gap-3 overflow-y-auto pr-1 md:grid-cols-2">
                 {templateOptions.map((tpl) => (
-                  <li key={tpl.id}>
+                  <li key={tpl.id} className="flex min-h-0 min-w-0 flex-col">
                     <button
                       type="button"
                       onClick={() => {
                         setContent(tpl.content);
                         setShowTemplateModal(false);
                       }}
-                      className="w-full rounded-xl border border-stone-200 px-4 py-3.5 text-left hover:border-amber-300 hover:bg-amber-50/40"
+                      className="flex min-h-0 flex-1 flex-col rounded-xl border border-stone-200 px-4 py-3.5 text-left hover:border-amber-300 hover:bg-amber-50/40"
                     >
-                      <div className="text-base font-medium text-stone-800">{tpl.name}</div>
-                      <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-stone-600">
+                      <div className="shrink-0 text-base font-medium text-stone-800">{tpl.name}</div>
+                      <p className="mt-1 min-h-0 flex-1 overflow-y-auto whitespace-pre-line text-sm leading-relaxed text-stone-600">
                         {tpl.content}
                       </p>
                     </button>

@@ -70,8 +70,8 @@ export const DEFAULT_TTS = {
  * 저장값은 API 분기(>1이면 long)에 맞춰 0.5 | 1.5 만 사용한다.
  */
 export const TTS_LINE_BREAK_PAUSE_OPTIONS = [
-  { value: 0.5, label: "짧은 쉼" },
-  { value: 1.5, label: "긴 쉼" },
+  { value: 0.5, label: "짧게" },
+  { value: 1.5, label: "길게" },
 ] as const;
 
 export function normalizeTtsLineBreakPauseSeconds(raw: number | undefined | null): number {

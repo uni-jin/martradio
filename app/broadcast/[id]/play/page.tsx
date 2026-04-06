@@ -559,9 +559,9 @@ export default function PlayBroadcastPage() {
               </div>
             </div>
             <div className="mt-3">
-              <span className="block text-base text-stone-500">줄 사이 쉼</span>
+              <span className="block text-base text-stone-500">줄 간격 시간</span>
               <p className="mt-0.5 text-base text-stone-400">
-                Enter로 나눈 줄과 줄 사이 쉼입니다. 한 줄만 있으면 적용되지 않습니다.
+                Enter로 나눈 줄 사이의 간격 시간입니다. 한 줄만 있으면 적용되지 않습니다.
               </p>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 {TTS_LINE_BREAK_PAUSE_OPTIONS.map((o) => (
@@ -640,7 +640,7 @@ export default function PlayBroadcastPage() {
                 )}
                 <li>말하기 속도: {session?.ttsRate ? `${ratePercentToSpeed(session.ttsRate).toFixed(1)}x` : "1.0x"}</li>
                 <li>
-                  줄 사이 쉼:{" "}
+                  줄 간격 시간:{" "}
                   {session?.ttsBreakSeconds != null
                     ? labelForTtsLineBreakPauseSeconds(session.ttsBreakSeconds)
                     : "—"}
