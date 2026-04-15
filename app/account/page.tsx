@@ -5,10 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AddressSearchFields from "@/app/_components/AddressSearchFields";
 import {
+  fetchReferrerOptions,
   getCurrentUser,
-  getReferrerOptions,
   getStoredUserForCurrentSession,
   updateCurrentUserProfile,
+  type ReferrerOption,
 } from "@/lib/auth";
 
 function normalizePhone(p: string) {
@@ -17,7 +18,7 @@ function normalizePhone(p: string) {
 
 export default function AccountPage() {
   const router = useRouter();
-  const referrerOptions = getReferrerOptions();
+  const [referrerOptions, setReferrerOptions] = useState<ReferrerOption[]>([]);
 
   const [ready, setReady] = useState(false);
   const [username, setUsername] = useState("");
@@ -40,6 +41,10 @@ export default function AccountPage() {
   const hasRequestedPhoneVerification = sentCode !== null;
 
   const phoneNeedsVerify = normalizePhone(phone) !== normalizePhone(savedPhone);
+
+  useEffect(() => {
+    void fetchReferrerOptions().then(setReferrerOptions);
+  }, []);
 
   useEffect(() => {
     const cur = getCurrentUser();

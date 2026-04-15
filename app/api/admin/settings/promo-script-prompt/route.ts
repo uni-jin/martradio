@@ -1,0 +1,41 @@
+import { NextRequest, NextResponse } from "next/server";
+import { requireSuperAdminApi } from "@/lib/requireAdminApi.server";
+import { validatePromoScriptTemplate } from "@/lib/promoScriptPrompt";
+import {
+  getPromoScriptTemplateForEdit,
+  writePromoScriptPromptPersisted,
+} from "@/lib/promoScriptPromptStore.server";
+
+export async function GET() {
+  const admin = await requireSuperAdminApi();
+  if (admin instanceof NextResponse) return admin;
+
+  const { template, updatedAt, source } = getPromoScriptTemplateForEdit();
+  return NextResponse.json({ template, updatedAt, source });
+}
+
+export async function PUT(request: NextRequest) {
+  const admin = await requireSuperAdminApi();
+  if (admin instanceof NextResponse) return admin;
+
+  let body: { template?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "JSON 본문이 필요합니다." }, { status: 400 });
+  }
+
+  const template = typeof body.template === "string" ? body.template : "";
+  const err = validatePromoScriptTemplate(template);
+  if (err) {
+    return NextResponse.json({ error: err }, { status: 400 });
+  }
+
+  const saved = writePromoScriptPromptPersisted(template);
+  return NextResponse.json({
+    ok: true,
+    template: saved.template,
+    updatedAt: saved.updatedAt,
+    source: "file" as const,
+  });
+}

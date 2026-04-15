@@ -8,10 +8,10 @@ import {
   computeAdminDashboardStats,
   getAdminProducts,
   getAdminPayments,
-  getAdminReferrers,
   getAdminUsers,
   getVoiceTemplates,
   type AdminDashboardStats,
+  type AdminReferrer,
 } from "@/lib/adminData";
 
 const money = (n: number) =>
@@ -82,9 +82,21 @@ function KpiCard({
 
 export default function AdminHomePage() {
   const [stats, setStats] = useState<AdminDashboardStats | null>(null);
+  const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
 
   useEffect(() => {
-    setStats(computeAdminDashboardStats());
+    let canceled = false;
+    void (async () => {
+      const res = await fetch("/api/admin/referrers", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
+      const list = Array.isArray(data.referrers) ? data.referrers : [];
+      if (canceled) return;
+      setReferrers(list);
+      setStats(computeAdminDashboardStats(list));
+    })();
+    return () => {
+      canceled = true;
+    };
   }, []);
 
   const productNameById = useMemo(() => {
@@ -114,12 +126,11 @@ export default function AdminHomePage() {
   const voicesPaidOnlyCount = useMemo(() => {
     if (typeof window === "undefined") return 0;
     return getVoiceTemplates().filter((v) => v.paidOnly === true).length;
-  }, [stats]);
+  }, []);
 
   const recentPaymentRows = useMemo(() => {
     if (!stats || typeof window === "undefined") return [];
     const users = getAdminUsers();
-    const referrers = getAdminReferrers();
     const refNameById = new Map(referrers.map((r) => [r.id, r.name]));
     const byId = new Map<string, Record<string, unknown>>();
     const byUsername = new Map<string, Record<string, unknown>>();
@@ -142,7 +153,7 @@ export default function AdminHomePage() {
       const personName = u && typeof u.name === "string" && u.name.trim() ? u.name.trim() : "-";
       return { p, martName, personName, referrerLabel };
     });
-  }, [stats]);
+  }, [stats, referrers]);
 
   return (
     <AdminShell title="">

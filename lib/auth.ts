@@ -8,9 +8,10 @@ export type AuthUser = {
   planId?: PlanId;
 };
 
+import { syncPaymentReferrerForUser } from "@/lib/adminData";
+
 const AUTH_STORAGE_KEY = "mart-radio-auth-user";
 const USERS_STORAGE_KEY = "mart-radio-users";
-const REFERRERS_STORAGE_KEY = "mart-radio-referrers";
 const ADMIN_PRODUCTS_STORAGE_KEY = "mart-radio-admin-products";
 
 export type StoredUser = {
@@ -105,21 +106,47 @@ const DEFAULT_REFERRERS: ReferrerOption[] = [
   { id: "ref-lee", name: "이대리" },
 ];
 
-export function getReferrerOptions(): ReferrerOption[] {
-  if (typeof window === "undefined") return DEFAULT_REFERRERS;
+export async function fetchReferrerOptions(): Promise<ReferrerOption[]> {
   try {
-    const raw = window.localStorage.getItem(REFERRERS_STORAGE_KEY);
-    if (!raw) return DEFAULT_REFERRERS;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return DEFAULT_REFERRERS;
-    return parsed
-      .filter(
-        (v) => typeof v?.id === "string" && typeof v?.name === "string" && v?.isActive !== false
-      )
-      .map((v) => ({ id: v.id as string, name: v.name as string }));
+    const res = await fetch("/api/public/referrer-options", { cache: "no-store" });
+    if (!res.ok) return DEFAULT_REFERRERS;
+    const data = (await res.json()) as { options?: unknown };
+    if (!Array.isArray(data.options)) return DEFAULT_REFERRERS;
+    const list = data.options.filter(
+      (v): v is ReferrerOption =>
+        v != null &&
+        typeof v === "object" &&
+        typeof (v as ReferrerOption).id === "string" &&
+        typeof (v as ReferrerOption).name === "string"
+    );
+    return list.length > 0 ? list : DEFAULT_REFERRERS;
   } catch {
     return DEFAULT_REFERRERS;
   }
+}
+
+export function updateUserReferrerByAdmin(userId: string, referrerId: string | null): void {
+  if (typeof window === "undefined") {
+    throw new Error("브라우저 환경에서만 사용할 수 있습니다.");
+  }
+  const users = getAllStoredUsers();
+  const idx = users.findIndex((u) => u.id === userId);
+  if (idx < 0) {
+    throw new Error("회원을 찾을 수 없습니다.");
+  }
+  const nextId = referrerId?.trim() || null;
+  const next = [...users];
+  next[idx] = {
+    ...next[idx],
+    referrerId: nextId,
+  };
+  saveAllStoredUsers(next);
+  const row = next[idx];
+  syncPaymentReferrerForUser({
+    userId: row.id,
+    username: row.username.trim(),
+    referrerId: nextId,
+  });
 }
 
 export async function register(payload: RegisterPayload): Promise<AuthUser> {

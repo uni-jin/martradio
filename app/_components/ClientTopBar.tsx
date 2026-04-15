@@ -25,6 +25,10 @@ export default function ClientTopBar() {
     const syncFromStorage = () => {
       const isAdminPath = (pathname ?? "").startsWith("/admin");
       if (isAdminPath) {
+        const cached = getCurrentAdmin();
+        if (cached?.username) {
+          setAdminId(cached.username);
+        }
         void (async () => {
           const admin = (await fetchAdminSession()) ?? getCurrentAdmin();
           setAdminId(admin?.username ?? null);

@@ -6,7 +6,7 @@ import { requireAdminApi } from "@/lib/requireAdminApi.server";
 
 export async function POST() {
   const admin = await requireAdminApi();
-  if ("username" in admin) {
+  if (!(admin instanceof NextResponse)) {
     appendSecurityAudit({ type: "admin_logout", username: admin.username });
   }
   const jar = await cookies();

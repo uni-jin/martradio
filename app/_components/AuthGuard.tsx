@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { fetchAdminSession } from "@/lib/adminAuth";
+import { fetchAdminSession, getCurrentAdmin } from "@/lib/adminAuth";
+import {
+  adminPathAllowedForReferrer,
+  pickReferrerAdminFallbackPath,
+} from "@/lib/adminPathAccess.client";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/admin/login"];
 
@@ -28,10 +32,19 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const p = pathname ?? "";
   const isPublic = isUserPublicPath(p);
   const isAdmin = p.startsWith("/admin");
+  const isAdminLogin = p === "/admin/login" || p.startsWith("/admin/login/");
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setMounted(true);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!mounted) return;
+    if (!isAdmin || isPublic || isAdminLogin) return;
+    if (getCurrentAdmin()) {
+      setAdminOk(true);
+    }
+  }, [mounted, isAdmin, isPublic, isAdminLogin, p]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -42,10 +55,23 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
 
     if (isAdmin) {
+      if (isAdminLogin) {
+        setAdminOk(null);
+        return;
+      }
       void (async () => {
         const me = await fetchAdminSession();
         if (!me) {
+          setAdminOk(false);
           router.replace("/admin/login");
+          return;
+        }
+        if (me.mustChangePassword && p !== "/admin/settings/password") {
+          router.replace("/admin/settings/password");
+          return;
+        }
+        if (me.role === "referrer_admin" && !adminPathAllowedForReferrer(p, me.allowedHrefs)) {
+          router.replace(pickReferrerAdminFallbackPath(me.allowedHrefs));
           return;
         }
         setAdminOk(true);
@@ -57,7 +83,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     if (!getCurrentUser()) {
       router.replace("/login");
     }
-  }, [mounted, p, isPublic, isAdmin, router]);
+  }, [mounted, p, isPublic, isAdmin, isAdminLogin, router]);
 
   if (!mounted) {
     return loadingScreen;
@@ -68,7 +94,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   if (isAdmin) {
+    if (isAdminLogin) {
+      return <>{children}</>;
+    }
     if (adminOk !== true) {
+      return loadingScreen;
+    }
+    const me = getCurrentAdmin();
+    if (me?.mustChangePassword && p !== "/admin/settings/password") {
       return loadingScreen;
     }
     return <>{children}</>;

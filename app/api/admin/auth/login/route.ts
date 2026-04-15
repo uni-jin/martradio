@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { verifyAdminCredentials } from "@/lib/adminCredentials.server";
+import { getSuperAdminUsernameNormalized, verifyAdminCredentials } from "@/lib/adminCredentials.server";
 import { ADMIN_SESSION_COOKIE, getAdminSessionSecret, signAdminSessionPayload } from "@/lib/adminSession.server";
 import { appendSecurityAudit } from "@/lib/securityAudit.server";
+import { verifyReferrerCredentials } from "@/lib/referrerStore.server";
 
 function clientIp(request: NextRequest): string {
   const xff = request.headers.get("x-forwarded-for");
@@ -31,33 +32,58 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "서버 설정 오류(ADMIN_SESSION_SECRET)" }, { status: 500 });
   }
 
-  const ok = verifyAdminCredentials(username, password);
   const ip = clientIp(request);
-  if (!ok) {
-    appendSecurityAudit({
-      type: "admin_login_failed",
-      username: username.trim(),
-      ip,
+
+  const superOk = verifyAdminCredentials(username, password);
+  if (superOk) {
+    const u = getSuperAdminUsernameNormalized();
+    const token = signAdminSessionPayload({ username: u, role: "admin", referrerId: null }, secret);
+    const jar = await cookies();
+    jar.set(ADMIN_SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
     });
-    return NextResponse.json({ error: "관리자 아이디 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
+    appendSecurityAudit({ type: "admin_login_ok", username: u, ip });
+    return NextResponse.json({
+      ok: true,
+      username: u,
+      role: "admin" as const,
+      mustChangePassword: false,
+      allowedHrefs: null,
+    });
   }
 
-  const u = (process.env.ADMIN_USERNAME?.trim() || "admin").toLowerCase();
-  const token = signAdminSessionPayload(u, secret);
-  const jar = await cookies();
-  jar.set(ADMIN_SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
+  const ref = await verifyReferrerCredentials(username, password);
+  if (ref) {
+    const token = signAdminSessionPayload(
+      { username: ref.loginId, role: "referrer_admin", referrerId: ref.id },
+      secret
+    );
+    const jar = await cookies();
+    jar.set(ADMIN_SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+    appendSecurityAudit({ type: "admin_login_ok", username: ref.loginId, ip });
+    return NextResponse.json({
+      ok: true,
+      username: ref.loginId,
+      role: "referrer_admin" as const,
+      mustChangePassword: ref.usesDefaultPassword,
+      allowedHrefs: null,
+    });
+  }
 
   appendSecurityAudit({
-    type: "admin_login_ok",
-    username: u,
+    type: "admin_login_failed",
+    username: username.trim(),
     ip,
   });
-
-  return NextResponse.json({ ok: true, username: u });
+  return NextResponse.json({ error: "관리자 아이디 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
 }

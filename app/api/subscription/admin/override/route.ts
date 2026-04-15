@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminOverrideSubscription } from "@/lib/subscriptionServerStore";
-import { requireAdminApi } from "@/lib/requireAdminApi.server";
+import { requireSuperAdminApi } from "@/lib/requireAdminApi.server";
 import { appendSecurityAudit } from "@/lib/securityAudit.server";
 import { isValidPublicUserId } from "@/lib/validation.shared";
 
@@ -14,7 +14,7 @@ function normalizePlanId(planId: unknown): PaidPlanId | "free" | null {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireAdminApi();
+  const auth = await requireSuperAdminApi();
   if (auth instanceof NextResponse) return auth;
 
   let body: {

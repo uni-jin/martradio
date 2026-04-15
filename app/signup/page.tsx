@@ -5,12 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AddressSearchFields from "@/app/_components/AddressSearchFields";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
-import { getReferrerOptions, register } from "@/lib/auth";
+import { fetchReferrerOptions, register, type ReferrerOption } from "@/lib/auth";
 
 export default function SignupPage() {
   const router = useRouter();
-  const referrerOptions = getReferrerOptions();
-  const requiresReferrerSelection = referrerOptions.length > 0;
+  const [referrerOptions, setReferrerOptions] = useState<ReferrerOption[]>([]);
+  useEffect(() => {
+    void fetchReferrerOptions().then(setReferrerOptions);
+  }, []);
   const [username, setUsername] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -32,8 +34,8 @@ export default function SignupPage() {
 
   const referrerTriggerLabel =
     referrerId === ""
-      ? "추천인을 선택해 주세요"
-      : referrerOptions.find((o) => o.id === referrerId)?.name ?? "추천인을 선택해 주세요";
+      ? "선택 안 함"
+      : referrerOptions.find((o) => o.id === referrerId)?.name ?? referrerId;
 
   useEffect(() => {
     if (!referrerOpen) return;
@@ -89,10 +91,6 @@ export default function SignupPage() {
       setError("필수 항목을 모두 입력해 주세요.");
       return;
     }
-    if (requiresReferrerSelection && !referrerId) {
-      setError("추천인을 선택해 주세요.");
-      return;
-    }
     if (!phoneVerified) {
       setError("전화번호 인증을 완료해 주세요.");
       return;
@@ -116,7 +114,7 @@ export default function SignupPage() {
         name,
         phone,
         password,
-        referrerId: requiresReferrerSelection ? referrerId : undefined,
+        referrerId: referrerId.trim() || undefined,
       });
       router.push("/");
     } catch (err) {
@@ -235,9 +233,9 @@ export default function SignupPage() {
             />
             <div>
               <label htmlFor="referrer-menu-trigger" className="text-base text-stone-600">
-                추천인 {requiresReferrerSelection ? "(필수)" : "(선택)"}
+                추천인 (선택)
               </label>
-              {requiresReferrerSelection ? (
+              {referrerOptions.length > 0 ? (
                 <div className="relative" ref={referrerMenuRef}>
                   <button
                     type="button"
@@ -258,6 +256,17 @@ export default function SignupPage() {
                       aria-labelledby="referrer-menu-trigger"
                       className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-60 overflow-y-auto rounded-xl border border-stone-200 bg-white py-1 shadow-lg"
                     >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={`flex w-full px-3 py-2.5 text-left text-base text-stone-800 hover:bg-stone-50 ${referrerId === "" ? "bg-amber-50 font-medium text-amber-900" : ""}`}
+                        onClick={() => {
+                          setReferrerId("");
+                          setReferrerOpen(false);
+                        }}
+                      >
+                        선택 안 함
+                      </button>
                       {referrerOptions.map((option) => (
                         <button
                           key={option.id}

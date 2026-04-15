@@ -4,13 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import AdminShell from "@/app/_components/AdminShell";
-import {
-  getAdminProducts,
-  getAdminReferrers,
-  getAdminUsers,
-  getPaymentsForUser,
-} from "@/lib/adminData";
-import { getPlanDisplayLabel } from "@/lib/auth";
+import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
+import { getAdminProducts, getAdminUsers, getPaymentsForUser, type AdminReferrer } from "@/lib/adminData";
+import { getPlanDisplayLabel, updateUserReferrerByAdmin } from "@/lib/auth";
 import { buildPaymentOrderNoMap } from "@/lib/adminPaymentOrderNo";
 import { billingPeriodsForPaymentHistoryOldestFirst } from "@/lib/subscriptionPeriod";
 import {
@@ -34,16 +30,76 @@ function formatYmdKo(ymd: string) {
 export default function AdminUserDetailPage() {
   const params = useParams();
   const userId = String(params.id ?? "");
-  const user = useMemo(() => getAdminUsers().find((u) => String(u.id) === userId), [userId]);
+  const [usersRefreshTick, setUsersRefreshTick] = useState(0);
+  const user = useMemo(
+    () => {
+      void usersRefreshTick;
+      return getAdminUsers().find((u) => String(u.id) === userId);
+    },
+    [userId, usersRefreshTick]
+  );
 
-  const referrerLabel = useMemo(() => {
-    if (!user) return "—";
-    const refs = getAdminReferrers();
+  const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
+  useEffect(() => {
+    let canceled = false;
+    void (async () => {
+      const res = await fetch("/api/admin/referrers", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
+      if (canceled) return;
+      setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  const [draftReferrerId, setDraftReferrerId] = useState("");
+  const [referrerSaving, setReferrerSaving] = useState(false);
+  const [referrerSaveError, setReferrerSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
     const rid = user.referrerId;
-    const idStr = typeof rid === "string" ? rid : "";
-    if (!idStr) return "—";
-    return refs.find((r) => r.id === idStr)?.name ?? idStr;
+    setDraftReferrerId(typeof rid === "string" && rid.trim() ? rid.trim() : "");
+    setReferrerSaveError(null);
   }, [user]);
+
+  const savedReferrerId = useMemo(() => {
+    if (!user) return "";
+    const rid = user.referrerId;
+    return typeof rid === "string" && rid.trim() ? rid.trim() : "";
+  }, [user]);
+
+  const referrerSelectRows = useMemo(() => {
+    const active = referrers.filter((r) => r.isActive);
+    const cur = savedReferrerId;
+    if (cur && !active.some((r) => r.id === cur)) {
+      const found = referrers.find((r) => r.id === cur);
+      if (found) {
+        return [found, ...active.filter((r) => r.id !== cur)];
+      }
+      return [{ id: cur, name: cur, isActive: false, loginId: "", createdAt: "", updatedAt: "" }, ...active];
+    }
+    return active;
+  }, [referrers, savedReferrerId]);
+
+  const referrerDirty = draftReferrerId !== savedReferrerId;
+
+  const saveReferrerAssignment = () => {
+    if (!userId || !user) return;
+    if (!window.confirm("추천인을 저장하시겠습니까?")) return;
+    setReferrerSaveError(null);
+    setReferrerSaving(true);
+    try {
+      updateUserReferrerByAdmin(userId, draftReferrerId.trim() || null);
+      setUsersRefreshTick((t) => t + 1);
+      window.alert("저장되었습니다.");
+    } catch (e) {
+      setReferrerSaveError(e instanceof Error ? e.message : "저장에 실패했습니다.");
+    } finally {
+      setReferrerSaving(false);
+    }
+  };
 
   const { displayBase, displayDetail, showMergedMismatch } = useMemo(() => {
     if (!user) {
@@ -261,7 +317,35 @@ export default function AdminUserDetailPage() {
                   </tr>
                   <tr className="border-t border-stone-100">
                     <th className="bg-stone-50 px-3 py-2 text-left font-medium text-stone-600">추천인</th>
-                    <td className="px-3 py-2">{referrerLabel}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                        <select
+                          value={draftReferrerId}
+                          onChange={(e) => setDraftReferrerId(e.target.value)}
+                          className={`max-w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 pr-10 text-sm text-stone-800 sm:max-w-xs ${SELECT_CHEVRON_TAILWIND}`}
+                          aria-label="추천인"
+                        >
+                          <option value="">없음</option>
+                          {referrerSelectRows.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.name}
+                              {!r.isActive ? " (비활성)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={!referrerDirty || referrerSaving}
+                          onClick={saveReferrerAssignment}
+                          className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {referrerSaving ? "저장 중..." : "저장"}
+                        </button>
+                      </div>
+                      {referrerSaveError ? (
+                        <p className="mt-1 text-xs text-red-600">{referrerSaveError}</p>
+                      ) : null}
+                    </td>
                     <th className="bg-stone-50 px-3 py-2 text-left font-medium text-stone-600">가입일</th>
                     <td className="px-3 py-2">
                       {inferredJoinedAt

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AdminShell from "@/app/_components/AdminShell";
-import { getAdminReferrers, getAdminUsers, getPaymentsForUser } from "@/lib/adminData";
+import { getAdminUsers, getPaymentsForUser, type AdminReferrer } from "@/lib/adminData";
 import { getPlanDisplayLabel } from "@/lib/auth";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 import {
@@ -119,7 +119,7 @@ function inferJoinedAt(u: Record<string, unknown>): string | null {
 export default function AdminUsersPage() {
   const router = useRouter();
   const users = useMemo(() => getAdminUsers(), []);
-  const referrers = useMemo(() => getAdminReferrers(), []);
+  const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
   const referrerNameById = useMemo(
     () => new Map(referrers.map((r) => [r.id, r.name])),
     [referrers]
@@ -131,6 +131,20 @@ export default function AdminUsersPage() {
   const [searchField, setSearchField] = useState<SearchField>("username");
   const [keyword, setKeyword] = useState("");
   const [subsByUserId, setSubsByUserId] = useState<Map<string, SubscriptionSnapshot>>(new Map());
+
+  useEffect(() => {
+    let canceled = false;
+    void (async () => {
+      const res = await fetch("/api/admin/referrers", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
+      if (!canceled) {
+        setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

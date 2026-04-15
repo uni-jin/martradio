@@ -1,15 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AdminShell from "@/app/_components/AdminShell";
-import {
-  getAdminPayments,
-  getAdminReferrers,
-  getAdminUsers,
-  type AdminReferrer,
-} from "@/lib/adminData";
+import { getCurrentAdmin } from "@/lib/adminAuth";
+import { getAdminPayments, getAdminUsers, type AdminReferrer } from "@/lib/adminData";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 type ActiveFilter = "all" | "active" | "inactive";
@@ -22,7 +18,21 @@ function inferCreatedAt(r: AdminReferrer): string | null {
 
 export default function AdminReferrersPage() {
   const router = useRouter();
-  const referrers = useMemo(() => getAdminReferrers(), []);
+  const isSuper = getCurrentAdmin()?.role === "admin";
+  const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    void (async () => {
+      const res = await fetch("/api/admin/referrers", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
+      if (canceled) return;
+      setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, []);
   const users = useMemo(() => getAdminUsers(), []);
   const payments = useMemo(() => getAdminPayments(), []);
 
@@ -76,7 +86,7 @@ export default function AdminReferrersPage() {
           const value =
             searchField === "personName"
               ? String(r.personName ?? "").toLowerCase()
-              : String(r.name ?? "").toLowerCase();
+              : `${String(r.name ?? "").toLowerCase()} ${String(r.loginId ?? "").toLowerCase()}`;
           if (!value.includes(kw)) return false;
         }
         return true;
@@ -100,10 +110,11 @@ export default function AdminReferrersPage() {
   };
 
   const downloadExcel = () => {
-    const header = ["추천인", "가입자 수", "결제 수", "결제 합계", "활성여부", "생성일"];
+    const header = ["추천인 ID", "추천인", "가입자 수", "결제 수", "결제 합계", "활성여부", "생성일"];
     const rows = filtered.map((r) => {
       const m = metricsByReferrerId.get(r.id) ?? { signupCount: 0, paymentCount: 0, paymentAmount: 0 };
       return [
+        r.loginId ?? "",
         r.name,
         String(m.signupCount),
         String(m.paymentCount),
@@ -189,14 +200,14 @@ export default function AdminReferrersPage() {
               onChange={(e) => setSearchField(e.target.value as ReferrerSearchField)}
               className={`h-9 rounded border border-stone-300 px-2 pr-10 text-sm ${SELECT_CHEVRON_TAILWIND}`}
             >
-              <option value="referrer">추천인</option>
+              <option value="referrer">추천인 / ID</option>
               <option value="personName">이름</option>
             </select>
             <input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               className="h-9 w-full max-w-[300px] rounded border border-stone-300 px-3 text-sm"
-              placeholder={searchField === "personName" ? "이름 검색" : "추천인 검색"}
+              placeholder={searchField === "personName" ? "이름 검색" : "추천인 또는 ID 검색"}
             />
           </div>
         </div>
@@ -221,12 +232,14 @@ export default function AdminReferrersPage() {
       <div className="mb-2 flex items-center justify-between text-sm">
         <p className="text-stone-700">총 {filtered.length.toLocaleString()}건</p>
         <div className="flex items-center gap-2">
-          <Link
-            href="/admin/referrers/new"
-            className="rounded border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
-          >
-            추천인 추가
-          </Link>
+          {isSuper ? (
+            <Link
+              href="/admin/referrers/new"
+              className="rounded border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+            >
+              추천인 추가
+            </Link>
+          ) : null}
           <button
             type="button"
             onClick={downloadExcel}
@@ -242,6 +255,7 @@ export default function AdminReferrersPage() {
           <thead className="bg-stone-50 text-stone-600">
             <tr>
               <th className="px-3 py-2 text-left">No.</th>
+              <th className="px-3 py-2 text-left">추천인 ID</th>
               <th className="px-3 py-2 text-left">추천인</th>
               <th className="px-3 py-2 text-left">가입자 수</th>
               <th className="px-3 py-2 text-left">결제 수</th>
@@ -265,6 +279,7 @@ export default function AdminReferrersPage() {
                   onClick={() => router.push(`/admin/referrers/${r.id}`)}
                 >
                   <td className="px-3 py-2">{filtered.length - idx}</td>
+                  <td className="px-3 py-2">{r.loginId}</td>
                   <td className="px-3 py-2">{r.name}</td>
                   <td className="px-3 py-2">{m.signupCount.toLocaleString()}</td>
                   <td className="px-3 py-2">{m.paymentCount.toLocaleString()}</td>
@@ -286,7 +301,7 @@ export default function AdminReferrersPage() {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-stone-500">
+                <td colSpan={8} className="px-3 py-6 text-center text-stone-500">
                   추천인 데이터가 없습니다.
                 </td>
               </tr>

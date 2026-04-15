@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
+import { useAdminSession } from "@/app/_components/AdminSessionProvider";
+import { ADMIN_MENU_GROUPS, REFERRER_ADMIN_PASSWORD_HREF } from "@/lib/adminMenuCatalog";
+import { adminMenuHrefAllowed } from "@/lib/adminPathAccess.client";
+import type { AdminSession } from "@/lib/adminAuth";
 
 type MenuGroup = {
   title: string;
@@ -23,6 +28,55 @@ function pathMatchesMenu(pathname: string, itemHref: string): boolean {
   return p === h || p.startsWith(`${h}/`);
 }
 
+function dedupeItems(items: { href: string; label: string }[]): { href: string; label: string }[] {
+  const seen = new Set<string>();
+  const out: { href: string; label: string }[] = [];
+  for (const it of items) {
+    const k = normalizePath(it.href);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(it);
+  }
+  return out;
+}
+
+function buildMenuGroups(session: AdminSession): MenuGroup[] {
+  const base: MenuGroup[] = ADMIN_MENU_GROUPS.map((g) => ({
+    title: g.groupTitle,
+    items: g.items.map((it) => ({ href: it.href, label: it.label })),
+  }));
+
+  if (session.role === "admin") {
+    return base.map((g) => {
+      if (g.title !== "설정") {
+        return { ...g, items: g.items.filter((i) => i.href !== REFERRER_ADMIN_PASSWORD_HREF) };
+      }
+      return {
+        ...g,
+        items: dedupeItems([
+          ...g.items.filter((i) => i.href !== REFERRER_ADMIN_PASSWORD_HREF),
+          { href: "/admin/settings/referrer-permissions", label: "관리자 권한 관리" },
+        ]),
+      };
+    });
+  }
+
+  const allowed = session.allowedHrefs ?? [];
+  const out: MenuGroup[] = [];
+  for (const g of base) {
+    let items = g.items.filter((it) => adminMenuHrefAllowed(it.href, allowed));
+    if (g.title === "설정") {
+      items = dedupeItems([
+        ...items,
+        { href: REFERRER_ADMIN_PASSWORD_HREF, label: "비밀번호 변경" },
+      ]);
+    }
+    if (items.length === 0) continue;
+    out.push({ ...g, items });
+  }
+  return out;
+}
+
 /** 동일 URL로의 이동처럼 보일 때만 새로고침(하위 경로는 일반 링크 이동) */
 function handleSameHrefReload(
   e: React.MouseEvent<HTMLAnchorElement>,
@@ -34,35 +88,6 @@ function handleSameHrefReload(
     window.location.reload();
   }
 }
-
-const MENUS: MenuGroup[] = [
-  {
-    title: "대시보드",
-    items: [{ href: "/admin", label: "대시보드" }],
-  },
-  {
-    title: "회원관리",
-    items: [
-      { href: "/admin/users", label: "회원관리" },
-      { href: "/admin/referrers", label: "추천인관리" },
-    ],
-  },
-  {
-    title: "결제내역/통계",
-    items: [
-      { href: "/admin/payments", label: "결제 상세 내역" },
-      { href: "/admin/referrer-payments", label: "추천인 결제 통계" },
-    ],
-    hiddenPathPrefixes: ["/admin/products", "/admin/webhooks/toss"],
-  },
-  {
-    title: "콘텐츠 관리",
-    items: [
-      { href: "/admin/templates", label: "방송 템플릿 관리" },
-      { href: "/admin/voices", label: "음성 템플릿 관리" },
-    ],
-  },
-];
 
 function groupMatchesPathname(group: MenuGroup, pathname: string): boolean {
   if (group.items.some((item) => pathMatchesMenu(pathname, item.href))) return true;
@@ -82,19 +107,33 @@ export default function AdminShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname() ?? "";
-  const activeGroup = MENUS.find((group) => groupMatchesPathname(group, pathname));
+  const { session, refreshing } = useAdminSession();
+
+  const menus = useMemo(() => (session ? buildMenuGroups(session) : []), [session]);
+  const activeGroup = menus.find((group) => groupMatchesPathname(group, pathname));
+
+  if (!session) {
+    if (refreshing) {
+      return (
+        <main className="min-h-full bg-[var(--bg)]">
+          <div className="flex min-h-[40vh] items-center justify-center text-stone-500">메뉴를 불러오는 중…</div>
+        </main>
+      );
+    }
+    return null;
+  }
 
   return (
     <main className="min-h-full bg-[var(--bg)]">
       <div className="w-full border-t border-stone-200">
-        <div className="grid w-full grid-cols-2 border-b border-stone-200 bg-white text-sm font-medium text-stone-700 sm:grid-cols-4">
-          {MENUS.map((group) => {
+        <div className="grid w-full grid-cols-2 border-b border-stone-200 bg-white text-sm font-medium text-stone-700 sm:grid-cols-3 lg:grid-cols-5">
+          {menus.map((group) => {
             const isActive = activeGroup?.title === group.title;
             return (
               <Link
                 key={group.title}
-                href={group.items[0].href}
-                onClick={(e) => handleSameHrefReload(e, pathname, group.items[0].href)}
+                href={group.items[0]?.href ?? "/admin"}
+                onClick={(e) => handleSameHrefReload(e, pathname, group.items[0]?.href ?? "/admin")}
                 className={`flex min-h-12 items-center justify-center px-3 py-3 text-sm sm:text-base ${
                   isActive
                     ? "bg-[#28579d] font-semibold text-white"
@@ -110,7 +149,7 @@ export default function AdminShell({
         <div className="grid w-full min-w-0 bg-white md:grid-cols-[220px_1fr]">
           <aside className="border-b border-r-0 border-stone-200 p-4 md:border-b-0 md:border-r">
             <nav className="space-y-1">
-              {(activeGroup?.items ?? MENUS[0].items).map((item) => {
+              {(activeGroup?.items ?? menus[0]?.items ?? []).map((item) => {
                 const active = pathMatchesMenu(pathname, item.href);
                 return (
                   <Link
@@ -139,4 +178,3 @@ export default function AdminShell({
     </main>
   );
 }
-

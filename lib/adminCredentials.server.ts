@@ -1,5 +1,9 @@
+export function getSuperAdminUsernameNormalized(): string {
+  return (process.env.ADMIN_USERNAME?.trim() || "admin").toLowerCase();
+}
+
 export function verifyAdminCredentials(username: string, password: string): boolean {
-  const u = (process.env.ADMIN_USERNAME?.trim() || "admin").toLowerCase();
+  const u = getSuperAdminUsernameNormalized();
   const inUser = username.trim().toLowerCase();
   if (inUser !== u) return false;
 

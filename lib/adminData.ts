@@ -6,6 +6,8 @@ export type { VoiceTemplate } from "./voiceTemplateTypes";
 
 export type AdminReferrer = {
   id: string;
+  /** 관리자 사이트 로그인 ID (영문·숫자) */
+  loginId: string;
   /** 추천인 코드명 */
   name: string;
   /** 실제 담당자 이름 */
@@ -57,7 +59,6 @@ export type AdminTemplateOption = {
   content: string;
 };
 
-const REFERRERS_KEY = "mart-radio-referrers";
 const TEMPLATES_KEY = "mart-radio-admin-templates";
 const VOICES_KEY_V2 = "mart-radio-voice-templates-v2";
 const VOICES_KEY_LEGACY = "mart-radio-admin-voices";
@@ -83,27 +84,13 @@ function writeList<T>(key: string, data: T[]) {
   window.localStorage.setItem(key, JSON.stringify(data));
 }
 
+/** @deprecated 추천인 데이터는 `/api/admin/referrers`를 사용합니다. */
 export function getAdminReferrers(): AdminReferrer[] {
-  const list = readList<AdminReferrer>(REFERRERS_KEY, [
-    { id: "ref-kim", name: "kim-sales", personName: "김영업", isActive: true, createdAt: now(), updatedAt: now() },
-    { id: "ref-lee", name: "lee-sales", personName: "이대리", isActive: true, createdAt: now(), updatedAt: now() },
-  ]);
-  return list
-    .filter((r) => typeof r?.id === "string" && typeof r?.name === "string")
-    .map((r) => ({
-      ...r,
-      personName: typeof r.personName === "string" ? r.personName : "",
-      phone: typeof r.phone === "string" ? r.phone : "",
-      email: typeof r.email === "string" ? r.email : "",
-      isActive: r.isActive !== false,
-      createdAt: typeof r.createdAt === "string" && r.createdAt ? r.createdAt : now(),
-      updatedAt: typeof r.updatedAt === "string" && r.updatedAt ? r.updatedAt : now(),
-    }));
+  return [];
 }
 
-export function saveAdminReferrers(list: AdminReferrer[]) {
-  writeList(REFERRERS_KEY, list);
-}
+/** @deprecated 추천인 데이터는 `/api/admin/referrers`를 사용합니다. */
+export function saveAdminReferrers(_list: AdminReferrer[]) {}
 
 export function getAdminTemplates(): AdminTemplate[] {
   return readList<AdminTemplate>(TEMPLATES_KEY, []).map((t) => ({
@@ -332,6 +319,30 @@ export function appendUserPayment(params: {
   saveAdminPayments([payment, ...getAdminPayments()]);
 }
 
+/** 회원의 추천인이 바뀔 때, 해당 회원 결제 건의 referrerId를 동일 값으로 맞춥니다(추천인 결제 통계 등). */
+export function syncPaymentReferrerForUser(params: {
+  userId: string;
+  username: string;
+  referrerId: string | null;
+}): void {
+  if (typeof window === "undefined") return;
+  const uid = params.userId.trim();
+  if (!uid) return;
+  const uname = params.username.trim();
+  const ref = params.referrerId?.trim() ? params.referrerId.trim() : null;
+  const list = getAdminPayments();
+  let changed = false;
+  const next = list.map((p) => {
+    const match = p.userId === uid || (uname.length > 0 && p.username === uname);
+    if (!match) return p;
+    const prev = p.referrerId ?? null;
+    if (prev === ref) return p;
+    changed = true;
+    return { ...p, referrerId: ref };
+  });
+  if (changed) saveAdminPayments(next);
+}
+
 export function getAdminUsers(): Array<Record<string, unknown>> {
   return readList<Record<string, unknown>>("mart-radio-users", []);
 }
@@ -384,8 +395,8 @@ function userPlanKey(u: Record<string, unknown>): PlanKey {
   return "free";
 }
 
-/** 클라이언트에서 localStorage 기준으로 집계. 서버에서는 빈 값에 가까운 결과. */
-export function computeAdminDashboardStats(): AdminDashboardStats {
+/** 클라이언트에서 localStorage 기준으로 집계. `referrers`는 API에서 받은 목록을 넘깁니다. */
+export function computeAdminDashboardStats(referrers: AdminReferrer[]): AdminDashboardStats {
   const emptyPlanBreakdown = [
     { key: "free", label: "무료 방송", count: 0 },
     { key: "basic", label: "기본 방송", count: 0 },
@@ -397,8 +408,8 @@ export function computeAdminDashboardStats(): AdminDashboardStats {
       totalUsers: 0,
       paidUsers: 0,
       planBreakdown: emptyPlanBreakdown,
-      referrersTotal: 0,
-      referrersActive: 0,
+      referrersTotal: referrers.length,
+      referrersActive: referrers.filter((r) => r.isActive).length,
       templatesTotal: 0,
       templatesPaidOnly: 0,
       productsActive: 0,
@@ -415,7 +426,6 @@ export function computeAdminDashboardStats(): AdminDashboardStats {
   }
 
   const users = getAdminUsers();
-  const referrers = getAdminReferrers();
   const templates = getAdminTemplates();
   const products = getAdminProducts();
   const voices = getVoiceTemplates();

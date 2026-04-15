@@ -19,7 +19,7 @@ import {
   normalizeTtsLineBreakPauseSeconds,
 } from "@/lib/ttsOptions";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
-import { getTemplateOptionsForPlan, getVoiceTemplatesUserFacing } from "@/lib/adminData";
+import { getVoiceTemplatesUserFacing } from "@/lib/adminData";
 import { buildGoogleTtsSynthesizeBody } from "@/lib/ttsGoogleRequest";
 import { setYoutubeEmbedIframeVolume } from "@/lib/youtubeEmbedVolume";
 import {
@@ -49,6 +49,9 @@ export default function EditBroadcastPage() {
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [promoRawText, setPromoRawText] = useState("");
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [scriptError, setScriptError] = useState<string | null>(null);
   const [bgmUrl, setBgmUrl] = useState("");
   const [bgmPlayRange, setBgmPlayRange] = useState<"full" | "segment">("full");
   const [bgmStartMin, setBgmStartMin] = useState("");
@@ -72,7 +75,6 @@ export default function EditBroadcastPage() {
   const [loopMode, setLoopMode] = useState<"infinite" | "count">("infinite");
   const [repeatCount, setRepeatCount] = useState(3);
   const [gapSeconds, setGapSeconds] = useState(0);
-  const [showTemplateModal, setShowTemplateModal] = useState(false);
   /** 음성 생성 성공 후 또는 저장된 방송과 동기일 때만 true. 방송·음악(2)·음성(3)이 달라지면 숨김. */
   const [playbackSectionVisible, setPlaybackSectionVisible] = useState(false);
   const committedPlaybackRef = useRef<BroadcastPlaybackCommitSnapshot | null>(null);
@@ -91,7 +93,6 @@ export default function EditBroadcastPage() {
   const activePlaybackGenRef = useRef(0);
 
   const user = useMemo(() => getCurrentUser(), []);
-  const templateOptions = useMemo(() => getTemplateOptionsForPlan(user?.planId), [user]);
   const [voiceListTick, setVoiceListTick] = useState(0);
   useEffect(() => {
     const onV = () => setVoiceListTick((t) => t + 1);
@@ -287,6 +288,34 @@ export default function EditBroadcastPage() {
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
     };
   }, []);
+
+  const handleGenerateScript = async () => {
+    if (!promoRawText.trim()) {
+      setScriptError("광고 문자 내용을 입력해 주세요.");
+      return;
+    }
+    setIsGeneratingScript(true);
+    setScriptError(null);
+    try {
+      const res = await fetch("/api/broadcast/promo-to-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rawText: promoRawText }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { script?: string; error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || `오류 ${res.status}`);
+      }
+      if (!data.script?.trim()) {
+        throw new Error("생성된 방송문이 없습니다.");
+      }
+      setContent(data.script.trim());
+    } catch (e) {
+      setScriptError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsGeneratingScript(false);
+    }
+  };
 
   const handleGenerate = async () => {
     if (!content.trim()) return;
@@ -666,18 +695,33 @@ export default function EditBroadcastPage() {
               />
             </div>
             <div>
-              <div className="flex items-center justify-between gap-2 text-base font-medium text-stone-700">
-                <span id="edit-broadcast-content-label">
-                  방송 내용 ({contentLength.toLocaleString()}
-                  {maxChars != null ? ` / ${maxChars.toLocaleString()}` : ""}자)
-                </span>
+              <label className="text-base font-medium text-stone-700">광고 문자 내용</label>
+              <textarea
+                value={promoRawText}
+                onChange={(e) => setPromoRawText(e.target.value)}
+                placeholder="마트의 광고 문자 그대로 붙여넣어 주세요."
+                className="mt-1.5 min-h-[280px] w-full rounded-lg border border-stone-200 px-3 py-3 text-base leading-relaxed text-stone-800"
+              />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowTemplateModal(true)}
-                  className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
+                  onClick={handleGenerateScript}
+                  disabled={isGeneratingScript || !promoRawText.trim()}
+                  className="rounded-lg bg-slate-800 px-4 py-2.5 text-base font-medium text-white hover:bg-slate-900 disabled:opacity-50"
                 >
-                  템플릿 불러오기
+                  {isGeneratingScript ? "방송문 생성 중..." : "방송 내용 만들기"}
                 </button>
+              </div>
+              {scriptError && (
+                <p className="mt-1.5 text-base leading-relaxed text-red-600">{scriptError}</p>
+              )}
+            </div>
+            <div>
+              <div className="text-base font-medium text-stone-700">
+                <span id="edit-broadcast-content-label">
+                  방송 내용 미리보기 ({contentLength.toLocaleString()}
+                  {maxChars != null ? ` / ${maxChars.toLocaleString()}` : ""}자)
+                </span>
               </div>
               <textarea
                 id="edit-broadcast-content"
@@ -1105,47 +1149,6 @@ export default function EditBroadcastPage() {
         )}
       </div>
 
-      {showTemplateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-5xl rounded-2xl bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-2xl font-semibold text-stone-800">템플릿 불러오기</h2>
-              <button
-                type="button"
-                onClick={() => setShowTemplateModal(false)}
-                className="rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-700 hover:bg-stone-50"
-              >
-                닫기
-              </button>
-            </div>
-            {templateOptions.length === 0 ? (
-              <p className="mt-4 rounded-xl border border-stone-100 bg-stone-50 px-4 py-8 text-center text-base leading-relaxed text-stone-600">
-                사용 가능한 템플릿이 없습니다.
-              </p>
-            ) : (
-              <ul className="mt-4 grid max-h-[60vh] grid-cols-1 gap-3 overflow-y-auto pr-1 md:grid-cols-2">
-                {templateOptions.map((tpl) => (
-                  <li key={tpl.id} className="flex min-h-0 min-w-0 flex-col">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setContent(tpl.content);
-                        setShowTemplateModal(false);
-                      }}
-                      className="flex min-h-0 flex-1 flex-col rounded-xl border border-stone-200 px-4 py-3.5 text-left hover:border-amber-300 hover:bg-amber-50/40"
-                    >
-                      <div className="shrink-0 text-base font-medium text-stone-800">{tpl.name}</div>
-                      <p className="mt-1 min-h-0 flex-1 overflow-y-auto whitespace-pre-line text-sm leading-relaxed text-stone-600">
-                        {tpl.content}
-                      </p>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
     </main>
   );
 }

@@ -1,9 +1,9 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import type { AdminReferrer } from "@/lib/adminData";
-import { getAdminPayments, getAdminReferrers, getAdminUsers } from "@/lib/adminData";
+import { getAdminPayments, getAdminUsers } from "@/lib/adminData";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 function inferJoinedAt(u: Record<string, unknown>): string | null {
@@ -56,8 +56,21 @@ function buildMonthStats(
 
 export default function AdminReferrerPaymentsPage() {
   const payments = useMemo(() => getAdminPayments(), []);
-  const referrers = useMemo(() => getAdminReferrers(), []);
+  const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
   const users = useMemo(() => getAdminUsers(), []);
+
+  useEffect(() => {
+    let canceled = false;
+    void (async () => {
+      const res = await fetch("/api/admin/referrers", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
+      if (canceled) return;
+      setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, []);
 
   const [year, setYear] = useState(() => new Date().getFullYear());
 

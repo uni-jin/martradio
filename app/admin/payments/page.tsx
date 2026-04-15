@@ -1,14 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import type { AdminPayment } from "@/lib/adminData";
-import {
-  getAdminPayments,
-  getAdminProducts,
-  getAdminReferrers,
-  getAdminUsers,
-} from "@/lib/adminData";
+import { getAdminPayments, getAdminProducts, getAdminUsers, type AdminReferrer } from "@/lib/adminData";
 import { getPlanDisplayLabel } from "@/lib/auth";
 import { buildPaymentOrderNoMap } from "@/lib/adminPaymentOrderNo";
 import { billingPeriodsForPaymentHistoryOldestFirst } from "@/lib/subscriptionPeriod";
@@ -39,7 +34,19 @@ export default function AdminPaymentsPage() {
   );
 
   const users = useMemo(() => getAdminUsers(), []);
-  const referrers = useMemo(() => getAdminReferrers(), []);
+  const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
+  useEffect(() => {
+    let canceled = false;
+    void (async () => {
+      const res = await fetch("/api/admin/referrers", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
+      if (canceled) return;
+      setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, []);
   const referrerNameById = useMemo(
     () => new Map(referrers.map((r) => [r.id, r.name])),
     [referrers]

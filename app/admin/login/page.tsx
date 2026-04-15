@@ -16,8 +16,12 @@ export default function AdminLoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await loginAdmin(username.trim(), password);
-      router.push("/admin");
+      const session = await loginAdmin(username.trim(), password);
+      if (session.mustChangePassword) {
+        router.replace("/admin/settings/password");
+        return;
+      }
+      router.replace("/admin");
     } catch (e) {
       setError(e instanceof Error ? e.message : "로그인에 실패했습니다.");
     } finally {
@@ -61,4 +65,3 @@ export default function AdminLoginPage() {
     </main>
   );
 }
-
