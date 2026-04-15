@@ -1,24 +1,20 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_PROMO_SCRIPT_TEMPLATE } from "@/lib/promoScriptPrompt";
+import { ensureMartradioDataDir } from "@/lib/martradioDataDir.server";
 
-const STORE_DIR = join(tmpdir(), ".martradio-data");
-const STORE_PATH = join(STORE_DIR, "promo-script-prompt.json");
+function promoScriptPromptStorePath(): string {
+  return join(ensureMartradioDataDir(), "promo-script-prompt.json");
+}
 
 type Persisted = {
   template: string;
   updatedAt: string;
 };
 
-function ensureDir(): void {
-  if (!existsSync(STORE_DIR)) {
-    mkdirSync(STORE_DIR, { recursive: true });
-  }
-}
-
 export function readPromoScriptPromptPersisted(): Persisted | null {
   try {
+    const STORE_PATH = promoScriptPromptStorePath();
     if (!existsSync(STORE_PATH)) return null;
     const raw = readFileSync(STORE_PATH, "utf8");
     if (!raw.trim()) return null;
@@ -34,7 +30,7 @@ export function readPromoScriptPromptPersisted(): Persisted | null {
 }
 
 export function writePromoScriptPromptPersisted(template: string): Persisted {
-  ensureDir();
+  const STORE_PATH = promoScriptPromptStorePath();
   const updatedAt = new Date().toISOString();
   const state: Persisted = { template: template.trim(), updatedAt };
   writeFileSync(STORE_PATH, JSON.stringify(state, null, 2), "utf8");

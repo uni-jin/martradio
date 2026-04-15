@@ -28,9 +28,8 @@ yarn-error.log*
 # local env files
 .env*.local
 
-# 로컬 런타임 데이터·보안 감사 로그
-.martradio-data/security-audit.jsonl
-.martradio-data/subscription-server-store.json
+# 서버 런타임 JSON 등 (추천인·구독·프롬프트·감사 로그)
+.martradio-data/
 
 # typescript
 *.tsbuildinfo

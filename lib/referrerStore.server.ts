@@ -1,12 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getSuperAdminUsernameNormalized } from "@/lib/adminCredentials.server";
+import { ensureMartradioDataDir } from "@/lib/martradioDataDir.server";
 import { collectAssignableMenuHrefs, REFERRER_ADMIN_PASSWORD_HREF } from "@/lib/adminMenuCatalog";
 import { hashAdminPassword, verifyAdminPassword } from "@/lib/adminPasswordCrypto.server";
 
-const STORE_DIR = join(tmpdir(), ".martradio-data");
-const STORE_PATH = join(STORE_DIR, "referrer-store.json");
+function referrerStorePath(): string {
+  return join(ensureMartradioDataDir(), "referrer-store.json");
+}
 
 export type StoredReferrer = {
   id: string;
@@ -29,12 +30,6 @@ type ReferrerStoreFile = {
   /** 추천인 관리자에게 허용할 메뉴 href 목록 */
   referrerAdminAllowedHrefs: string[];
 };
-
-function ensureDir(): void {
-  if (!existsSync(STORE_DIR)) {
-    mkdirSync(STORE_DIR, { recursive: true });
-  }
-}
 
 function normalizeLoginId(raw: string): string {
   return raw.trim().toLowerCase();
@@ -80,6 +75,7 @@ async function withPasswordHashes(rows: StoredReferrer[]): Promise<StoredReferre
 
 function readRaw(): ReferrerStoreFile | null {
   try {
+    const STORE_PATH = referrerStorePath();
     if (!existsSync(STORE_PATH)) return null;
     const raw = readFileSync(STORE_PATH, "utf8");
     if (!raw.trim()) return null;
@@ -95,8 +91,8 @@ function readRaw(): ReferrerStoreFile | null {
 }
 
 function writeRaw(state: ReferrerStoreFile): void {
-  ensureDir();
-  writeFileSync(STORE_PATH, JSON.stringify(state, null, 2), "utf8");
+  ensureMartradioDataDir();
+  writeFileSync(referrerStorePath(), JSON.stringify(state, null, 2), "utf8");
 }
 
 export async function readReferrerStore(): Promise<ReferrerStoreFile> {

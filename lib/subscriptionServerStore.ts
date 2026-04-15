@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { ensureMartradioDataDir } from "@/lib/martradioDataDir.server";
 import {
   addCalendarDaysYmd,
   dayOfMonthFromYmd,
@@ -81,10 +81,10 @@ type PersistedState = {
   billingChargeAttempts: Record<string, BillingChargeAttempt>;
 };
 
-// Vercel(서버리스) 런타임에서는 `/var/task` 등이 읽기 전용일 수 있어,
-// 항상 쓰기 가능한 임시 디렉토리를 사용한다.
-const STORE_DIR = join(tmpdir(), ".martradio-data");
-const STORE_PATH = join(STORE_DIR, "subscription-server-store.json");
+/** 기본은 `process.cwd()/.martradio-data`. 서버리스에서 cwd가 읽기 전용이면 `MARTRADIO_DATA_DIR=/tmp/.martradio-data` 등 설정. */
+function subscriptionStorePath(): string {
+  return join(ensureMartradioDataDir(), "subscription-server-store.json");
+}
 const MAX_WEBHOOK_LOGS = 500;
 
 const subscriptions = new Map<string, ServerSubscriptionStatus>();
@@ -97,9 +97,7 @@ const billingMethods = new Map<string, BillingMethod>();
 const billingChargeAttempts = new Map<string, BillingChargeAttempt>();
 
 function persistState(): void {
-  if (!existsSync(STORE_DIR)) {
-    mkdirSync(STORE_DIR, { recursive: true });
-  }
+  const STORE_PATH = subscriptionStorePath();
   const state: PersistedState = {
     subscriptions: Object.fromEntries(subscriptions.entries()),
     pendingCheckouts: Object.fromEntries(pendingCheckouts.entries()),
@@ -115,6 +113,7 @@ function persistState(): void {
 
 function loadState(): void {
   try {
+    const STORE_PATH = subscriptionStorePath();
     if (!existsSync(STORE_PATH)) return;
     const raw = readFileSync(STORE_PATH, "utf8");
     if (!raw.trim()) return;
