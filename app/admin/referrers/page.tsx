@@ -254,14 +254,14 @@ export default function AdminReferrersPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-stone-50 text-stone-600">
             <tr>
-              <th className="px-3 py-2 text-left">No.</th>
-              <th className="px-3 py-2 text-left">추천인 ID</th>
-              <th className="px-3 py-2 text-left">추천인</th>
-              <th className="px-3 py-2 text-left">가입자 수</th>
-              <th className="px-3 py-2 text-left">결제 수</th>
-              <th className="px-3 py-2 text-left">결제 합계</th>
-              <th className="px-3 py-2 text-left">활성여부</th>
-              <th className="px-3 py-2 text-left">생성일</th>
+              <th className="px-3 py-2 text-center">No.</th>
+              <th className="px-3 py-2 text-center">추천인 ID</th>
+              <th className="px-3 py-2 text-center">추천인</th>
+              <th className="px-3 py-2 text-center">가입자 수</th>
+              <th className="px-3 py-2 text-center">결제 수</th>
+              <th className="px-3 py-2 text-center">결제 합계</th>
+              <th className="px-3 py-2 text-center">활성여부</th>
+              <th className="px-3 py-2 text-center">생성일</th>
             </tr>
           </thead>
           <tbody>
@@ -278,13 +278,13 @@ export default function AdminReferrersPage() {
                   className="cursor-pointer border-t border-stone-100 hover:bg-stone-50"
                   onClick={() => router.push(`/admin/referrers/${r.id}`)}
                 >
-                  <td className="px-3 py-2">{filtered.length - idx}</td>
-                  <td className="px-3 py-2">{r.loginId}</td>
-                  <td className="px-3 py-2">{r.name}</td>
-                  <td className="px-3 py-2">{m.signupCount.toLocaleString()}</td>
-                  <td className="px-3 py-2">{m.paymentCount.toLocaleString()}</td>
-                  <td className="px-3 py-2">{m.paymentAmount.toLocaleString()}원</td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 text-center tabular-nums">{filtered.length - idx}</td>
+                  <td className="px-3 py-2 text-center">{r.loginId}</td>
+                  <td className="px-3 py-2 text-center">{r.name}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{m.signupCount.toLocaleString()}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{m.paymentCount.toLocaleString()}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{m.paymentAmount.toLocaleString()}원</td>
+                  <td className="px-3 py-2 text-center">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs ${
                         r.isActive ? "bg-emerald-50 text-emerald-700" : "bg-stone-100 text-stone-600"
@@ -293,7 +293,7 @@ export default function AdminReferrersPage() {
                       {r.isActive ? "활성" : "비활성"}
                     </span>
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 text-center">
                     {created ? new Date(created).toLocaleDateString("ko-KR") : "-"}
                   </td>
                 </tr>

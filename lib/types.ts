@@ -18,6 +18,7 @@ export interface BroadcastItem {
 export interface Session {
   id: string;
   title: string;
+  promoRawText?: string | null;
   eventType: EventType;
   customOpening?: string; // 자유입력 시 시작 문구
   scheduledAt: string | null;

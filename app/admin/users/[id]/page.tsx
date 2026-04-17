@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import AdminShell from "@/app/_components/AdminShell";
+import { useAdminSession } from "@/app/_components/AdminSessionProvider";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 import { getAdminProducts, getAdminUsers, getPaymentsForUser, type AdminReferrer } from "@/lib/adminData";
 import { getPlanDisplayLabel, updateUserReferrerByAdmin } from "@/lib/auth";
@@ -28,16 +29,23 @@ function formatYmdKo(ymd: string) {
 }
 
 export default function AdminUserDetailPage() {
+  const { session } = useAdminSession();
   const params = useParams();
   const userId = String(params.id ?? "");
   const [usersRefreshTick, setUsersRefreshTick] = useState(0);
+  const scopeReferrerId =
+    session?.role === "referrer_admin" && session.referrerId ? session.referrerId : null;
   const user = useMemo(
     () => {
       void usersRefreshTick;
-      return getAdminUsers().find((u) => String(u.id) === userId);
+      const found = getAdminUsers().find((u) => String(u.id) === userId);
+      if (!found) return undefined;
+      if (scopeReferrerId && String(found.referrerId ?? "") !== scopeReferrerId) return undefined;
+      return found;
     },
-    [userId, usersRefreshTick]
+    [scopeReferrerId, userId, usersRefreshTick]
   );
+  const canManageReferrer = session?.role === "admin";
 
   const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
   useEffect(() => {
@@ -91,6 +99,10 @@ export default function AdminUserDetailPage() {
     setReferrerSaveError(null);
     setReferrerSaving(true);
     try {
+      if (!canManageReferrer) {
+        setReferrerSaveError("추천인 변경 권한이 없습니다.");
+        return;
+      }
       updateUserReferrerByAdmin(userId, draftReferrerId.trim() || null);
       setUsersRefreshTick((t) => t + 1);
       window.alert("저장되었습니다.");
@@ -324,6 +336,7 @@ export default function AdminUserDetailPage() {
                           onChange={(e) => setDraftReferrerId(e.target.value)}
                           className={`max-w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 pr-10 text-sm text-stone-800 sm:max-w-xs ${SELECT_CHEVRON_TAILWIND}`}
                           aria-label="추천인"
+                          disabled={!canManageReferrer}
                         >
                           <option value="">없음</option>
                           {referrerSelectRows.map((r) => (
@@ -335,7 +348,7 @@ export default function AdminUserDetailPage() {
                         </select>
                         <button
                           type="button"
-                          disabled={!referrerDirty || referrerSaving}
+                          disabled={!canManageReferrer || !referrerDirty || referrerSaving}
                           onClick={saveReferrerAssignment}
                           className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -373,13 +386,13 @@ export default function AdminUserDetailPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-stone-50 text-stone-600">
                   <tr>
-                    <th className="px-3 py-2 text-left">No.</th>
-                    <th className="px-3 py-2 text-left">결제 일시</th>
-                    <th className="px-3 py-2 text-left">주문번호</th>
-                    <th className="px-3 py-2 text-left">구독</th>
-                    <th className="px-3 py-2 text-left">구독 만료일</th>
-                    <th className="px-3 py-2 text-left">판매가</th>
-                    <th className="px-3 py-2 text-left">결제 금액</th>
+                    <th className="px-3 py-2 text-center">No.</th>
+                    <th className="px-3 py-2 text-center">결제 일시</th>
+                    <th className="px-3 py-2 text-center">주문번호</th>
+                    <th className="px-3 py-2 text-center">구독</th>
+                    <th className="px-3 py-2 text-center">구독 만료일</th>
+                    <th className="px-3 py-2 text-center">판매가</th>
+                    <th className="px-3 py-2 text-center">결제 금액</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -394,15 +407,15 @@ export default function AdminUserDetailPage() {
                           : "—";
                       return (
                         <tr key={p.id} className="border-t border-stone-100">
-                          <td className="px-3 py-2">{paymentRows.length - idx}</td>
-                          <td className="px-3 py-2">{new Date(p.paidAt).toLocaleString("ko-KR")}</td>
-                          <td className="px-3 py-2">{p.orderNo}</td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 text-center tabular-nums">{paymentRows.length - idx}</td>
+                          <td className="px-3 py-2 text-center">{new Date(p.paidAt).toLocaleString("ko-KR")}</td>
+                          <td className="px-3 py-2 text-center">{p.orderNo}</td>
+                          <td className="px-3 py-2 text-center">
                             {productNameById.get(p.productId) ?? getPlanDisplayLabel(p.productId)}
                           </td>
-                          <td className="px-3 py-2">{p.planExpiresLabel}</td>
-                          <td className="px-3 py-2 tabular-nums">{salePriceLabel}</td>
-                          <td className="px-3 py-2 tabular-nums">{p.amount.toLocaleString()}원</td>
+                          <td className="px-3 py-2 text-center">{p.planExpiresLabel}</td>
+                          <td className="px-3 py-2 text-center tabular-nums">{salePriceLabel}</td>
+                          <td className="px-3 py-2 text-center tabular-nums">{p.amount.toLocaleString()}원</td>
                         </tr>
                       );
                     })}

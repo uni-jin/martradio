@@ -9,14 +9,17 @@ const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
 /** Chirp 3 HD 한국어 보이스 (무료 100만 글자/월). 문서: https://cloud.google.com/text-to-speech/docs/chirp3-hd */
 const DEFAULT_VOICE = "ko-KR-Chirp3-HD-Charon";
 
+const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-tts-preview";
+
 export async function POST(request: NextRequest) {
   let body: {
     text?: string;
+    ttsEngine?: "chirp3-hd" | "gemini-3.1-flash-tts-preview";
+    geminiPrompt?: string;
+    modelName?: string;
     voice?: string;
     languageCode?: string;
-    /** 최종 말하기 속도 (0.25~4). 새 클라이언트가 보냄 */
     speakingRate?: number;
-    /** 레거시: rate 퍼센트 문자열 — speakingRate 없을 때만 사용 */
     rate?: string;
     breakSeconds?: number;
     pitch?: number;
@@ -35,7 +38,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "text 필드가 비어 있습니다." }, { status: 400 });
   }
 
-  const voiceName = typeof body.voice === "string" && body.voice ? body.voice : DEFAULT_VOICE;
+  const ttsEngine = body.ttsEngine ?? "chirp3-hd";
+
+  const voiceName = typeof body.voice === "string" && body.voice ? body.voice.trim() : DEFAULT_VOICE;
   const languageCode =
     typeof body.languageCode === "string" && body.languageCode.trim()
       ? body.languageCode.trim()
@@ -60,7 +65,6 @@ export async function POST(request: NextRequest) {
       : 0;
 
   const breakSeconds = typeof body.breakSeconds === "number" ? body.breakSeconds : 0.5;
-  const inputText = buildMarkupWithBreaks(text, breakSeconds);
 
   const sampleRateHertz =
     typeof body.sampleRateHertz === "number" && Number.isFinite(body.sampleRateHertz) && body.sampleRateHertz > 0
@@ -92,15 +96,45 @@ export async function POST(request: NextRequest) {
   if (sampleRateHertz) {
     audioConfig.sampleRateHertz = sampleRateHertz;
   }
-  if (effectsProfileId?.length) {
+  if (ttsEngine === "chirp3-hd" && effectsProfileId?.length) {
     audioConfig.effectsProfileId = effectsProfileId;
   }
 
-  const payload = {
-    input: { markup: inputText },
-    voice: { languageCode, name: voiceName },
-    audioConfig,
-  };
+  let payload: Record<string, unknown>;
+
+  if (ttsEngine === "gemini-3.1-flash-tts-preview") {
+    const prompt =
+      typeof body.geminiPrompt === "string" ? body.geminiPrompt.trim() : "";
+    if (!prompt) {
+      return NextResponse.json(
+        { error: "Gemini TTS에는 geminiPrompt(스타일 프롬프트)가 필요합니다." },
+        { status: 400 }
+      );
+    }
+    const modelName =
+      typeof body.modelName === "string" && body.modelName.trim()
+        ? body.modelName.trim()
+        : DEFAULT_GEMINI_MODEL;
+    payload = {
+      input: {
+        text,
+        prompt,
+      },
+      voice: {
+        languageCode,
+        name: voiceName,
+        model_name: modelName,
+      },
+      audioConfig,
+    };
+  } else {
+    const inputText = buildMarkupWithBreaks(text, breakSeconds);
+    payload = {
+      input: { markup: inputText },
+      voice: { languageCode, name: voiceName },
+      audioConfig,
+    };
+  }
 
   try {
     const res = await fetch(TTS_URL, {

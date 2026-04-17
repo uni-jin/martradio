@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
+import { useAdminSession } from "@/app/_components/AdminSessionProvider";
 import type { AdminPayment } from "@/lib/adminData";
 import { getAdminPayments, getAdminProducts, getAdminUsers, type AdminReferrer } from "@/lib/adminData";
 import { getPlanDisplayLabel } from "@/lib/auth";
@@ -22,6 +23,7 @@ function userGroupKey(p: AdminPayment): string {
 }
 
 export default function AdminPaymentsPage() {
+  const { session } = useAdminSession();
   const products = useMemo(() => getAdminProducts(), []);
   const productsForPaymentFilter = useMemo(
     () => products.filter((p) => p.id !== "free"),
@@ -34,6 +36,12 @@ export default function AdminPaymentsPage() {
   );
 
   const users = useMemo(() => getAdminUsers(), []);
+  const scopeReferrerId =
+    session?.role === "referrer_admin" && session.referrerId ? session.referrerId : null;
+  const scopedUsers = useMemo(() => {
+    if (!scopeReferrerId) return users;
+    return users.filter((u) => String(u.referrerId ?? "") === scopeReferrerId);
+  }, [scopeReferrerId, users]);
   const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
   useEffect(() => {
     let canceled = false;
@@ -54,18 +62,30 @@ export default function AdminPaymentsPage() {
 
   const userByKey = useMemo(() => {
     const m = new Map<string, Record<string, unknown>>();
-    for (const u of users) {
+    for (const u of scopedUsers) {
       const id = String(u.id ?? "");
       const un = String(u.username ?? "");
       if (id) m.set(`id:${id}`, u);
       if (un) m.set(`un:${un}`, u);
     }
     return m;
-  }, [users]);
+  }, [scopedUsers]);
+
+  const scopedPayments = useMemo(() => {
+    if (!scopeReferrerId) return payments;
+    return payments.filter((p) => {
+      const uid = (p.userId ?? "").trim();
+      const un = (p.username ?? "").trim();
+      const matched =
+        (uid ? userByKey.get(`id:${uid}`) : undefined) ?? (un ? userByKey.get(`un:${un}`) : undefined);
+      if (matched) return true;
+      return String(p.referrerId ?? "") === scopeReferrerId;
+    });
+  }, [payments, scopeReferrerId, userByKey]);
 
   const planExpiryYmdByPaymentId = useMemo(() => {
     const byGroup = new Map<string, AdminPayment[]>();
-    for (const p of payments) {
+    for (const p of scopedPayments) {
       const k = userGroupKey(p);
       if (!byGroup.has(k)) byGroup.set(k, []);
       byGroup.get(k)!.push(p);
@@ -82,9 +102,9 @@ export default function AdminPaymentsPage() {
       });
     }
     return out;
-  }, [payments]);
+  }, [scopedPayments]);
 
-  const orderNoByPaymentId = useMemo(() => buildPaymentOrderNoMap(payments), [payments]);
+  const orderNoByPaymentId = useMemo(() => buildPaymentOrderNoMap(scopedPayments), [scopedPayments]);
 
   const [periodType, setPeriodType] = useState("결제일");
   const [fromDate, setFromDate] = useState("");
@@ -97,7 +117,7 @@ export default function AdminPaymentsPage() {
     const toMs = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : NaN;
     const selectedSet = new Set(selectedProductIds);
 
-    return payments
+    return scopedPayments
       .filter((p) => {
         const paidMs = new Date(p.paidAt).getTime();
         if (!Number.isNaN(fromMs) && paidMs < fromMs) return false;
@@ -110,7 +130,7 @@ export default function AdminPaymentsPage() {
       })
       .slice()
       .sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime());
-  }, [fromDate, payments, productAll, selectedProductIds, toDate]);
+  }, [fromDate, productAll, scopedPayments, selectedProductIds, toDate]);
 
   const paymentStats = useMemo(() => {
     const list = filteredPayments;
@@ -315,16 +335,16 @@ export default function AdminPaymentsPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-stone-50 text-stone-600">
             <tr>
-              <th className="whitespace-nowrap px-3 py-2 text-left">결제 일시</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left">주문번호</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left">아이디</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left">마트명</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left">이름</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left">추천인</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left">구독</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left">구독 만료일</th>
-              <th className="whitespace-nowrap px-3 py-2 text-right">판매가</th>
-              <th className="whitespace-nowrap px-3 py-2 text-right">결제 금액</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">결제 일시</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">주문번호</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">아이디</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">마트명</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">이름</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">추천인</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">구독</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">구독 만료일</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">판매가</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center">결제 금액</th>
             </tr>
           </thead>
           <tbody>
@@ -345,24 +365,24 @@ export default function AdminPaymentsPage() {
               const expiryYmd = planExpiryYmdByPaymentId.get(p.id);
               return (
                 <tr key={p.id} className="border-t border-stone-100">
-                  <td className="whitespace-nowrap px-3 py-2">
+                  <td className="whitespace-nowrap px-3 py-2 text-center">
                     {new Date(p.paidAt).toLocaleString("ko-KR")}
                   </td>
-                  <td className="max-w-[140px] truncate px-3 py-2 font-mono text-xs">
+                  <td className="max-w-[140px] truncate px-3 py-2 text-center font-mono text-xs">
                     {orderNoByPaymentId.get(p.id) ?? "-"}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2">{p.username}</td>
-                  <td className="px-3 py-2">{martName}</td>
-                  <td className="whitespace-nowrap px-3 py-2">{name}</td>
-                  <td className="whitespace-nowrap px-3 py-2">{referrerLabel}</td>
-                  <td className="whitespace-nowrap px-3 py-2">
+                  <td className="whitespace-nowrap px-3 py-2 text-center">{p.username}</td>
+                  <td className="px-3 py-2 text-center">{martName}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-center">{name}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-center">{referrerLabel}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-center">
                     {getPlanDisplayLabel(p.productId)}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2">
+                  <td className="whitespace-nowrap px-3 py-2 text-center">
                     {formatYmdKorean(expiryYmd)}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{salePrice}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                  <td className="whitespace-nowrap px-3 py-2 text-center tabular-nums">{salePrice}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-center tabular-nums">
                     {p.amount.toLocaleString()}원
                   </td>
                 </tr>

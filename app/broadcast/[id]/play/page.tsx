@@ -23,7 +23,7 @@ import type { SessionWithItems } from "@/lib/types";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
 import { extractYoutubeId } from "@/lib/utils";
 import { getVoiceTemplateById, getVoiceTemplatesUserFacing } from "@/lib/adminData";
-import { buildGoogleTtsSynthesizeBody } from "@/lib/ttsGoogleRequest";
+import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
 import { getCurrentUser } from "@/lib/auth";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
@@ -177,22 +177,10 @@ export default function PlayBroadcastPage() {
           throw new Error("사용 가능한 음성 템플릿이 없습니다.");
         }
         const synth = buildGoogleTtsSynthesizeBody(session.generatedText, gp, speed, ttsBreakSeconds);
-        const body: Record<string, unknown> = {
-          text: synth.text,
-          voice: synth.voice,
-          languageCode: synth.languageCode,
-          speakingRate: synth.speakingRate,
-          pitch: synth.pitch,
-          volumeGainDb: synth.volumeGainDb,
-          breakSeconds: synth.breakSeconds,
-        };
-        if (synth.sampleRateHertz != null) body.sampleRateHertz = synth.sampleRateHertz;
-        if (synth.effectsProfileId?.length) body.effectsProfileId = synth.effectsProfileId;
-
         const res = await fetch("/api/tts-google", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify(googleTtsApiJsonBody(synth)),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));

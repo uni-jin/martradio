@@ -14,8 +14,7 @@ import {
   type AdminReferrer,
 } from "@/lib/adminData";
 
-const money = (n: number) =>
-  new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW" }).format(n);
+const money = (n: number) => `${n.toLocaleString("ko-KR")}원`;
 
 const dateTime = (iso: string) => {
   try {
@@ -187,12 +186,6 @@ export default function AdminHomePage() {
                   href="/admin/payments"
                 />
                 <KpiCard
-                  label="방송 템플릿(노출중)"
-                  value={`${stats.templatesTotal}개`}
-                  sub={`유료 전용 ${stats.templatesPaidOnly}개`}
-                  href="/admin/templates"
-                />
-                <KpiCard
                   label="음성 템플릿(노출중)"
                   value={`${stats.voicesEnabled}개`}
                   sub={`유료 전용 ${voicesPaidOnlyCount}개`}
@@ -213,18 +206,18 @@ export default function AdminHomePage() {
                   </Link>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[220px] text-left text-sm">
+                  <table className="w-full min-w-[220px] text-sm">
                     <thead>
                       <tr className="border-b border-stone-200 text-xs text-stone-500">
-                        <th className="pb-2 pr-2 font-medium">구독</th>
-                        <th className="pb-2 font-medium">회원 수</th>
+                        <th className="pb-2 pr-2 text-center font-medium">구독</th>
+                        <th className="pb-2 text-center font-medium">회원 수</th>
                       </tr>
                     </thead>
                     <tbody>
                       {stats.planBreakdown.map((row) => (
                         <tr key={row.key} className="border-b border-stone-100 last:border-0">
-                          <td className="py-2 pr-2 text-stone-800">{row.label}</td>
-                          <td className="py-2 tabular-nums font-medium text-stone-800">
+                          <td className="py-2 pr-2 text-center text-stone-800">{row.label}</td>
+                          <td className="py-2 text-center tabular-nums font-medium text-stone-800">
                             {row.count.toLocaleString()}명
                           </td>
                         </tr>
@@ -248,26 +241,26 @@ export default function AdminHomePage() {
                   <p className="text-sm text-stone-500">등록된 추천인이 없습니다.</p>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[320px] text-left text-sm">
+                    <table className="w-full min-w-[320px] text-sm">
                       <thead>
                         <tr className="border-b border-stone-200 text-xs text-stone-500">
-                          <th className="pb-2 pr-2 font-medium">추천인</th>
-                          <th className="pb-2 pr-2 font-medium">가입 연결</th>
-                          <th className="pb-2 pr-2 font-medium">결제 수</th>
-                          <th className="pb-2 font-medium">결제 합계</th>
+                          <th className="pb-2 pr-2 text-center font-medium">추천인</th>
+                          <th className="pb-2 pr-2 text-center font-medium">가입 연결</th>
+                          <th className="pb-2 pr-2 text-center font-medium">결제 수</th>
+                          <th className="pb-2 text-center font-medium">결제 합계</th>
                         </tr>
                       </thead>
                       <tbody>
                         {stats.topReferrers.map((r) => (
                           <tr key={r.id} className="border-b border-stone-100 last:border-0">
-                            <td className="py-2 pr-2 text-stone-800">{r.name}</td>
-                            <td className="py-2 pr-2 tabular-nums text-stone-600">
+                            <td className="py-2 pr-2 text-center text-stone-800">{r.name}</td>
+                            <td className="py-2 pr-2 text-center tabular-nums text-stone-600">
                               {r.signups.toLocaleString()}명
                             </td>
-                            <td className="py-2 pr-2 tabular-nums text-stone-600">
+                            <td className="py-2 pr-2 text-center tabular-nums text-stone-600">
                               {r.paymentCount.toLocaleString()}건
                             </td>
-                            <td className="py-2 tabular-nums text-stone-800">
+                            <td className="py-2 text-center tabular-nums text-stone-800">
                               {money(r.revenue)}
                             </td>
                           </tr>
@@ -293,30 +286,30 @@ export default function AdminHomePage() {
                 <p className="text-sm text-stone-500">결제 내역이 없습니다.</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[640px] text-left text-sm">
+                  <table className="w-full min-w-[640px] text-sm">
                     <thead>
                       <tr className="border-b border-stone-200 text-xs text-stone-500">
-                        <th className="pb-2 pr-2 font-medium">일시</th>
-                        <th className="pb-2 pr-2 font-medium">마트명</th>
-                        <th className="pb-2 pr-2 font-medium">이름</th>
-                        <th className="pb-2 pr-2 font-medium">추천인</th>
-                        <th className="pb-2 pr-2 font-medium">구독</th>
-                        <th className="pb-2 font-medium">결제 금액</th>
+                        <th className="pb-2 pr-2 text-center font-medium">일시</th>
+                        <th className="pb-2 pr-2 text-center font-medium">마트명</th>
+                        <th className="pb-2 pr-2 text-center font-medium">이름</th>
+                        <th className="pb-2 pr-2 text-center font-medium">추천인</th>
+                        <th className="pb-2 pr-2 text-center font-medium">구독</th>
+                        <th className="pb-2 text-center font-medium">결제 금액</th>
                       </tr>
                     </thead>
                     <tbody>
                       {recentPaymentRows.map(({ p, martName, personName, referrerLabel }) => (
                         <tr key={p.id} className="border-b border-stone-100 last:border-0">
-                          <td className="py-2 pr-2 whitespace-nowrap text-stone-600">
+                          <td className="py-2 pr-2 text-center whitespace-nowrap text-stone-600">
                             {dateTime(p.paidAt)}
                           </td>
-                          <td className="py-2 pr-2 text-stone-800">{martName}</td>
-                          <td className="py-2 pr-2 text-stone-800">{personName}</td>
-                          <td className="py-2 pr-2 text-stone-600">{referrerLabel}</td>
-                          <td className="py-2 pr-2 text-stone-600">
+                          <td className="py-2 pr-2 text-center text-stone-800">{martName}</td>
+                          <td className="py-2 pr-2 text-center text-stone-800">{personName}</td>
+                          <td className="py-2 pr-2 text-center text-stone-600">{referrerLabel}</td>
+                          <td className="py-2 pr-2 text-center text-stone-600">
                             {productNameById.get(p.productId) ?? p.productId}
                           </td>
-                          <td className="py-2 tabular-nums font-medium text-stone-800">
+                          <td className="py-2 text-center tabular-nums font-medium text-stone-800">
                             {money(p.amount)}
                           </td>
                         </tr>

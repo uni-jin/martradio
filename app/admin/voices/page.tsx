@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import { generateId } from "@/lib/utils";
-import type { VoiceTemplate } from "@/lib/voiceTemplateTypes";
+import type { VoiceTemplate, VoiceTtsEngine } from "@/lib/voiceTemplateTypes";
 import { getVoiceTemplates, saveVoiceTemplates } from "@/lib/adminData";
 import { GOOGLE_TTS_EFFECTS_PROFILE_OPTIONS } from "@/lib/googleTtsEffects";
-import { buildGoogleTtsSynthesizeBody } from "@/lib/ttsGoogleRequest";
+import { GEMINI_31_FLASH_TTS_VOICE_NAMES } from "@/lib/geminiTtsVoiceNames";
+import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 /** 미리듣기에 사용하는 고정 문구 */
@@ -15,6 +16,8 @@ const PREVIEW_TEXT = "안내 방송 테스트입니다.";
 function clampForPreview(t: VoiceTemplate): VoiceTemplate {
   return {
     ...t,
+    ttsEngine: t.ttsEngine ?? "chirp3-hd",
+    geminiPrompt: t.geminiPrompt ?? null,
     speakingRate: Math.min(4, Math.max(0.25, t.speakingRate)),
     pitch: Math.min(20, Math.max(-20, t.pitch)),
     volumeGainDb: Math.min(16, Math.max(-96, t.volumeGainDb)),
@@ -36,6 +39,8 @@ function newTemplate(): VoiceTemplate {
     id: generateId(),
     label: "새 음성 템플릿",
     voice: "ko-KR-Chirp3-HD-Charon",
+    ttsEngine: "chirp3-hd",
+    geminiPrompt: null,
     languageCode: "ko-KR",
     enabled: true,
     paidOnly: false,
@@ -107,27 +112,20 @@ export default function AdminVoicesPage() {
         setPreviewError("음성(voice)이 필요합니다.");
         return;
       }
+      const engine = template.ttsEngine ?? "chirp3-hd";
+      if (engine === "gemini-3.1-flash-tts-preview" && !(template.geminiPrompt ?? "").trim()) {
+        setPreviewError("Gemini TTS에는 스타일 프롬프트가 필요합니다.");
+        return;
+      }
       setPreviewError(null);
       setPreviewingKey(key);
       try {
         const t = clampForPreview(template);
         const synth = buildGoogleTtsSynthesizeBody(PREVIEW_TEXT, t, 1, 0.5);
-        const body: Record<string, unknown> = {
-          text: synth.text,
-          voice: synth.voice,
-          languageCode: synth.languageCode,
-          speakingRate: synth.speakingRate,
-          pitch: synth.pitch,
-          volumeGainDb: synth.volumeGainDb,
-          breakSeconds: synth.breakSeconds,
-        };
-        if (synth.sampleRateHertz != null) body.sampleRateHertz = synth.sampleRateHertz;
-        if (synth.effectsProfileId?.length) body.effectsProfileId = synth.effectsProfileId;
-
         const res = await fetch("/api/tts-google", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify(googleTtsApiJsonBody(synth)),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -185,11 +183,18 @@ export default function AdminVoicesPage() {
       alert("표시 이름과 음성(voice)은 필수입니다.");
       return;
     }
+    const engine: VoiceTtsEngine = editing.ttsEngine ?? "chirp3-hd";
+    if (engine === "gemini-3.1-flash-tts-preview" && !editing.geminiPrompt?.trim()) {
+      alert("Gemini TTS를 쓰는 경우 스타일 프롬프트를 입력해 주세요.");
+      return;
+    }
     const t = new Date().toISOString();
     const nextItem: VoiceTemplate = {
       ...editing,
       label: editing.label.trim(),
       voice: editing.voice.trim(),
+      ttsEngine: engine,
+      geminiPrompt: engine === "gemini-3.1-flash-tts-preview" ? editing.geminiPrompt?.trim() ?? "" : null,
       languageCode: editing.languageCode.trim() || "ko-KR",
       speakingRate: Math.min(4, Math.max(0.25, editing.speakingRate)),
       pitch: Math.min(20, Math.max(-20, editing.pitch)),
@@ -199,7 +204,7 @@ export default function AdminVoicesPage() {
           ? Math.round(editing.sampleRateHertz)
           : null,
       effectsProfileId:
-        editing.effectsProfileId && editing.effectsProfileId.length > 0
+        engine === "chirp3-hd" && editing.effectsProfileId && editing.effectsProfileId.length > 0
           ? [...editing.effectsProfileId]
           : null,
       updatedAt: t,
@@ -239,12 +244,44 @@ export default function AdminVoicesPage() {
 
   const applyGoogleVoice = (name: string) => {
     const row = googleVoices.find((v) => v.name === name);
-    if (!editing) return;
+    if (!editing || (editing.ttsEngine ?? "chirp3-hd") !== "chirp3-hd") return;
     setEditing({
       ...editing,
       voice: name,
       languageCode: row?.languageCodes?.[0] ?? editing.languageCode ?? "ko-KR",
     });
+  };
+
+  const applyGeminiVoiceName = (name: string) => {
+    if (!editing || (editing.ttsEngine ?? "chirp3-hd") !== "gemini-3.1-flash-tts-preview") return;
+    setEditing({
+      ...editing,
+      voice: name,
+    });
+  };
+
+  const setTtsEngine = (engine: VoiceTtsEngine) => {
+    if (!editing) return;
+    if (engine === "chirp3-hd") {
+      setEditing({
+        ...editing,
+        ttsEngine: "chirp3-hd",
+        geminiPrompt: null,
+        voice: "ko-KR-Chirp3-HD-Charon",
+        languageCode: "ko-KR",
+      });
+    } else {
+      setEditing({
+        ...editing,
+        ttsEngine: "gemini-3.1-flash-tts-preview",
+        voice: "Puck",
+        languageCode: "ko-KR",
+        geminiPrompt:
+          editing.geminiPrompt?.trim() ||
+          "다음 안내를 밝고 활기차게, 전통시장 상인처럼 친근하고 에너지 넘치게 말해 주세요.",
+        effectsProfileId: null,
+      });
+    }
   };
 
   return (
@@ -283,9 +320,23 @@ export default function AdminVoicesPage() {
                 className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
               />
             </label>
-            {googleVoices.length > 0 && (
+            <label className="block sm:col-span-2">
+              <span className="text-xs text-stone-600">음성 엔진 *</span>
+              <select
+                value={editing.ttsEngine ?? "chirp3-hd"}
+                onChange={(e) => setTtsEngine(e.target.value as VoiceTtsEngine)}
+                className={`mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 pr-10 text-sm ${SELECT_CHEVRON_TAILWIND}`}
+              >
+                <option value="chirp3-hd">Chirp 3 HD</option>
+                <option value="gemini-3.1-flash-tts-preview">Gemini 3.1 Flash TTS (Preview)</option>
+              </select>
+              <p className="mt-1 text-xs text-stone-500">
+                Gemini는 스타일 프롬프트와 짧은 보이스 이름(Puck 등)을 사용합니다. Chirp3는 전체 보이스 이름과 줄바꿈 휴지 마크업을 사용합니다.
+              </p>
+            </label>
+            {(editing.ttsEngine ?? "chirp3-hd") === "chirp3-hd" && googleVoices.length > 0 && (
               <label className="block sm:col-span-2">
-                <span className="text-xs text-stone-600">Google 음성 선택 (API 목록)</span>
+                <span className="text-xs text-stone-600">Chirp3 — Google 음성 선택 (API 목록)</span>
                 <select
                   value={googleVoices.some((v) => v.name === editing.voice) ? editing.voice : ""}
                   onChange={(e) => {
@@ -303,12 +354,51 @@ export default function AdminVoicesPage() {
                 </select>
               </label>
             )}
+            {(editing.ttsEngine ?? "chirp3-hd") === "gemini-3.1-flash-tts-preview" && (
+              <label className="block sm:col-span-2">
+                <span className="text-xs text-stone-600">Gemini — 보이스 선택 (문서 목록)</span>
+                <select
+                  value={
+                    (GEMINI_31_FLASH_TTS_VOICE_NAMES as readonly string[]).includes(editing.voice)
+                      ? editing.voice
+                      : ""
+                  }
+                  onChange={(e) => {
+                    if (e.target.value) applyGeminiVoiceName(e.target.value);
+                  }}
+                  className={`mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 pr-10 text-sm ${SELECT_CHEVRON_TAILWIND}`}
+                >
+                  <option value="">— 직접 입력 —</option>
+                  {GEMINI_31_FLASH_TTS_VOICE_NAMES.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {(editing.ttsEngine ?? "chirp3-hd") === "gemini-3.1-flash-tts-preview" && (
+              <label className="block sm:col-span-2">
+                <span className="text-xs text-stone-600">스타일 프롬프트 *</span>
+                <textarea
+                  value={editing.geminiPrompt ?? ""}
+                  onChange={(e) => setEditing({ ...editing, geminiPrompt: e.target.value })}
+                  rows={4}
+                  placeholder="예: 다음 안내를 밝고 활기차게, 전통시장 상인처럼 말해 주세요."
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                />
+              </label>
+            )}
             <label className="block sm:col-span-2">
-              <span className="text-xs text-stone-600">voice (Google 보이스 이름) *</span>
+              <span className="text-xs text-stone-600">voice (보이스 이름) *</span>
               <input
                 value={editing.voice}
                 onChange={(e) => setEditing({ ...editing, voice: e.target.value })}
-                placeholder="예: ko-KR-Chirp3-HD-Charon"
+                placeholder={
+                  (editing.ttsEngine ?? "chirp3-hd") === "chirp3-hd"
+                    ? "예: ko-KR-Chirp3-HD-Charon"
+                    : "예: Puck, Fenrir"
+                }
                 className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 font-mono text-sm"
               />
             </label>
@@ -381,24 +471,26 @@ export default function AdminVoicesPage() {
                 className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
               />
             </label>
-            <div className="sm:col-span-2">
-              <span className="text-xs text-stone-600">음향 효과 프로필 (effectsProfileId, 다중 선택)</span>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {GOOGLE_TTS_EFFECTS_PROFILE_OPTIONS.map((opt) => (
-                  <label
-                    key={opt.value}
-                    className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={editing.effectsProfileId?.includes(opt.value) ?? false}
-                      onChange={(e) => toggleEffect(opt.value, e.target.checked)}
-                    />
-                    {opt.label}
-                  </label>
-                ))}
+            {(editing.ttsEngine ?? "chirp3-hd") === "chirp3-hd" && (
+              <div className="sm:col-span-2">
+                <span className="text-xs text-stone-600">음향 효과 프로필 (effectsProfileId, 다중 선택)</span>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {GOOGLE_TTS_EFFECTS_PROFILE_OPTIONS.map((opt) => (
+                    <label
+                      key={opt.value}
+                      className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editing.effectsProfileId?.includes(opt.value) ?? false}
+                        onChange={(e) => toggleEffect(opt.value, e.target.checked)}
+                      />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
             <label className="flex items-center gap-2 sm:col-span-2">
               <input
                 type="checkbox"
@@ -438,7 +530,12 @@ export default function AdminVoicesPage() {
                   "__editing__"
                 );
               }}
-              disabled={previewingKey === "__editing__" || !editing.voice.trim()}
+              disabled={
+                previewingKey === "__editing__" ||
+                !editing.voice.trim() ||
+                ((editing.ttsEngine ?? "chirp3-hd") === "gemini-3.1-flash-tts-preview" &&
+                  !(editing.geminiPrompt ?? "").trim())
+              }
               className="rounded-lg border border-slate-400 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-200 disabled:opacity-50"
             >
               {previewingKey === "__editing__" ? "생성 중…" : "미리듣기"}
@@ -458,7 +555,7 @@ export default function AdminVoicesPage() {
             </span>
           </div>
           <p className="mt-3 text-xs text-stone-500">
-            Google Cloud TTS 표준 API에는 LLM 스타일의 &quot;온도(temperature)&quot; 파라미터가 없습니다. 말하기 속도·피치·볼륨·샘플레이트·효과 프로필로 음색과 재생 환경을 조정할 수 있습니다.
+            Chirp3 HD는 말하기 속도·피치·볼륨·샘플레이트·효과 프로필로 조정합니다. Gemini 3.1 Flash TTS는 위 설정에 더해 스타일 프롬프트로 연출을 지시할 수 있습니다(Preview).
           </p>
         </div>
         </div>
@@ -471,13 +568,31 @@ export default function AdminVoicesPage() {
             className="rounded-xl border border-stone-200 bg-white px-3 py-3 shadow-sm"
           >
             <div className="min-w-0">
-              <p className="text-sm font-medium text-stone-800">{v.label}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-stone-800">{v.label}</p>
+                <span
+                  className={`rounded-md px-2 py-0.5 text-xs font-medium ${
+                    (v.ttsEngine ?? "chirp3-hd") === "gemini-3.1-flash-tts-preview"
+                      ? "bg-violet-100 text-violet-900"
+                      : "bg-slate-200 text-slate-800"
+                  }`}
+                >
+                  {(v.ttsEngine ?? "chirp3-hd") === "gemini-3.1-flash-tts-preview"
+                    ? "Gemini 3.1 TTS"
+                    : "Chirp3 HD"}
+                </span>
+              </div>
               <p className="mt-1 font-mono text-xs text-stone-500">{v.voice}</p>
+              {(v.ttsEngine ?? "chirp3-hd") === "gemini-3.1-flash-tts-preview" && v.geminiPrompt?.trim() && (
+                <p className="mt-1 line-clamp-2 text-xs text-stone-600">{v.geminiPrompt.trim()}</p>
+              )}
               <p className="mt-1 text-xs text-stone-500">
                 lang: {v.languageCode} · 속도×{v.speakingRate.toFixed(2)} · 피치 {v.pitch} · 볼륨{" "}
                 {v.volumeGainDb}dB
                 {v.sampleRateHertz ? ` · ${v.sampleRateHertz}Hz` : ""}
-                {v.effectsProfileId?.length ? ` · 효과 ${v.effectsProfileId.join(", ")}` : ""}
+                {(v.ttsEngine ?? "chirp3-hd") === "chirp3-hd" && v.effectsProfileId?.length
+                  ? ` · 효과 ${v.effectsProfileId.join(", ")}`
+                  : ""}
               </p>
             </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">

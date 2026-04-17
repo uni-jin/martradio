@@ -35,7 +35,6 @@ export const ADMIN_MENU_GROUPS: AdminMenuGroupDef[] = [
   {
     groupTitle: "콘텐츠 관리",
     items: [
-      { href: "/admin/templates", label: "방송 템플릿 관리" },
       { href: "/admin/voices", label: "음성 템플릿 관리" },
     ],
   },

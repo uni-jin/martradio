@@ -260,12 +260,12 @@ export default function SubscriptionPage() {
 
   const currentPlanFeatures = useMemo(() => {
     if (effectivePlanId === "small" || effectivePlanId === "medium") {
-      return ["방송 글자 수 제한: 500자", "기존 방송 저장 수: 5개"];
+      return ["방송문 글자 수 제한: 500자", "기존 방송 저장 수: 5개"];
     }
     if (effectivePlanId === "large") {
-      return ["방송 글자 수 제한: 무제한", "기존 방송 저장 수: 무제한"];
+      return ["방송문 글자 수 제한: 무제한", "기존 방송 저장 수: 무제한"];
     }
-    return ["방송 글자 수 제한: 100자", "기존 방송 저장 수: 1개"];
+    return ["방송문 글자 수 제한: 100자", "기존 방송 저장 수: 1개"];
   }, [effectivePlanId]);
 
   return (

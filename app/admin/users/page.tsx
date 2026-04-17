@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AdminShell from "@/app/_components/AdminShell";
+import { useAdminSession } from "@/app/_components/AdminSessionProvider";
 import { getAdminUsers, getPaymentsForUser, type AdminReferrer } from "@/lib/adminData";
 import { getPlanDisplayLabel } from "@/lib/auth";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
@@ -118,7 +119,14 @@ function inferJoinedAt(u: Record<string, unknown>): string | null {
 
 export default function AdminUsersPage() {
   const router = useRouter();
+  const { session } = useAdminSession();
   const users = useMemo(() => getAdminUsers(), []);
+  const scopeReferrerId =
+    session?.role === "referrer_admin" && session.referrerId ? session.referrerId : null;
+  const scopedUsers = useMemo(() => {
+    if (!scopeReferrerId) return users;
+    return users.filter((u) => String(u.referrerId ?? "") === scopeReferrerId);
+  }, [scopeReferrerId, users]);
   const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
   const referrerNameById = useMemo(
     () => new Map(referrers.map((r) => [r.id, r.name])),
@@ -182,7 +190,7 @@ export default function AdminUsersPage() {
 
   const planDisplayByUserId = useMemo(() => {
     const m = new Map<string, PlanDisplayInfo>();
-    for (const u of users) {
+    for (const u of scopedUsers) {
       const uid = String(u.id ?? "");
       if (!uid) continue;
       const username = String(u.username ?? "");
@@ -215,14 +223,14 @@ export default function AdminUsersPage() {
       });
     }
     return m;
-  }, [subsByUserId, users]);
+  }, [scopedUsers, subsByUserId]);
 
   const filteredUsers = useMemo(() => {
     const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : NaN;
     const toMs = toDate ? new Date(`${toDate}T23:59:59`).getTime() : NaN;
     const kw = keyword.trim().toLowerCase();
 
-    return users
+    return scopedUsers
       .filter((u) => {
         const joinedAt = inferJoinedAt(u);
         const joinedMs = joinedAt ? new Date(joinedAt).getTime() : NaN;
@@ -253,7 +261,7 @@ export default function AdminUsersPage() {
         if (bMs !== aMs) return bMs - aMs;
         return String(b.id ?? "").localeCompare(String(a.id ?? ""));
       });
-  }, [fromDate, keyword, referrerNameById, searchField, toDate, userKind, users]);
+  }, [fromDate, keyword, referrerNameById, scopedUsers, searchField, toDate, userKind]);
 
   const resetFilters = () => {
     setPeriodType("가입일");
@@ -416,14 +424,14 @@ export default function AdminUsersPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-stone-50 text-stone-600">
             <tr>
-              <th className="px-3 py-2 text-left">No.</th>
-              <th className="px-3 py-2 text-left">가입일</th>
-              <th className="px-3 py-2 text-left">아이디</th>
-              <th className="px-3 py-2 text-left">마트명</th>
-              <th className="px-3 py-2 text-left">이름</th>
-              <th className="px-3 py-2 text-left">회원유형</th>
-              <th className="px-3 py-2 text-left">이용중 구독</th>
-              <th className="px-3 py-2 text-left">추천인</th>
+              <th className="px-3 py-2 text-center">No.</th>
+              <th className="px-3 py-2 text-center">가입일</th>
+              <th className="px-3 py-2 text-center">아이디</th>
+              <th className="px-3 py-2 text-center">마트명</th>
+              <th className="px-3 py-2 text-center">이름</th>
+              <th className="px-3 py-2 text-center">회원유형</th>
+              <th className="px-3 py-2 text-center">이용중 구독</th>
+              <th className="px-3 py-2 text-center">추천인</th>
             </tr>
           </thead>
           <tbody>
@@ -440,17 +448,17 @@ export default function AdminUsersPage() {
                   className="cursor-pointer border-t border-stone-100 hover:bg-stone-50"
                   onClick={() => router.push(`/admin/users/${id}`)}
                 >
-                  <td className="px-3 py-2 align-middle">{filteredUsers.length - idx}</td>
-                  <td className="px-3 py-2 align-middle">
+                  <td className="px-3 py-2 text-center align-middle tabular-nums">{filteredUsers.length - idx}</td>
+                  <td className="px-3 py-2 text-center align-middle">
                     {joined ? new Date(joined).toLocaleDateString("ko-KR") : "-"}
                   </td>
-                  <td className="px-3 py-2 align-middle">{String(u.username ?? "-")}</td>
-                  <td className="px-3 py-2 align-middle">{String(u.martName ?? "-")}</td>
-                  <td className="px-3 py-2 align-middle">{String(u.name ?? "-")}</td>
-                  <td className="px-3 py-2 align-middle">
+                  <td className="px-3 py-2 text-center align-middle">{String(u.username ?? "-")}</td>
+                  <td className="px-3 py-2 text-center align-middle">{String(u.martName ?? "-")}</td>
+                  <td className="px-3 py-2 text-center align-middle">{String(u.name ?? "-")}</td>
+                  <td className="px-3 py-2 text-center align-middle">
                     {planId === "free" ? "무료회원" : "유료회원"}
                   </td>
-                  <td className="px-3 py-2 align-middle">
+                  <td className="px-3 py-2 text-center align-middle">
                     <AdminUserPlanCell
                       planInfo={
                         planDisplayByUserId.get(id) ?? {
@@ -464,7 +472,7 @@ export default function AdminUsersPage() {
                       }
                     />
                   </td>
-                  <td className="px-3 py-2 align-middle">{referrerLabel}</td>
+                  <td className="px-3 py-2 text-center align-middle">{referrerLabel}</td>
                 </tr>
               );
             })}

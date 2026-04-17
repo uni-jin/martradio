@@ -39,6 +39,9 @@ export type AdminProduct = {
   isActive: boolean;
 };
 
+/** 무료 구독 방송문 글자 상한 — 관리자·저장소에서 변경하지 않음 */
+export const FREE_PLAN_BROADCAST_MAX_CHARS = 100;
+
 export type AdminPayment = {
   id: string;
   userId: string;
@@ -109,6 +112,8 @@ function seedVoiceTemplates(): VoiceTemplate[] {
     id: preset.id,
     label: preset.label,
     voice: preset.voice,
+    ttsEngine: "chirp3-hd",
+    geminiPrompt: null,
     languageCode: "ko-KR",
     enabled: true,
     paidOnly: false,
@@ -129,6 +134,9 @@ function migrateLegacyVoiceRow(row: Record<string, unknown>): VoiceTemplate | nu
     id: row.id,
     label: typeof row.label === "string" ? row.label : row.id,
     voice: row.voice,
+    ttsEngine:
+      row.ttsEngine === "gemini-3.1-flash-tts-preview" ? "gemini-3.1-flash-tts-preview" : "chirp3-hd",
+    geminiPrompt: typeof row.geminiPrompt === "string" ? row.geminiPrompt : null,
     languageCode: typeof row.languageCode === "string" ? row.languageCode : "ko-KR",
     enabled: row.enabled !== false,
     paidOnly: row.paidOnly === true,
@@ -148,10 +156,14 @@ function migrateLegacyVoiceRow(row: Record<string, unknown>): VoiceTemplate | nu
 
 function ensureVoiceTemplateShape(v: VoiceTemplate): VoiceTemplate {
   const t = now();
+  const engine =
+    v.ttsEngine === "gemini-3.1-flash-tts-preview" ? "gemini-3.1-flash-tts-preview" : "chirp3-hd";
   return {
     id: v.id,
     label: v.label || v.id,
     voice: v.voice,
+    ttsEngine: engine,
+    geminiPrompt: typeof v.geminiPrompt === "string" ? v.geminiPrompt : null,
     languageCode: v.languageCode || "ko-KR",
     enabled: v.enabled !== false,
     paidOnly: v.paidOnly === true,
@@ -219,46 +231,65 @@ export function getVoiceTemplateById(id: string): VoiceTemplate | undefined {
   return getVoiceTemplates().find((v) => v.id === id);
 }
 
+const DEFAULT_ADMIN_PRODUCTS: AdminProduct[] = [
+  {
+    id: "free",
+    name: "무료 방송",
+    maxChars: FREE_PLAN_BROADCAST_MAX_CHARS,
+    visibleSessionLimit: 1,
+    priceMonthly: 0,
+    templateEnabled: false,
+    isActive: true,
+  },
+  {
+    id: "small",
+    name: "기본 방송",
+    maxChars: 500,
+    visibleSessionLimit: 5,
+    priceMonthly: 9900,
+    templateEnabled: false,
+    isActive: true,
+  },
+  {
+    id: "medium",
+    name: "기본 방송",
+    maxChars: 500,
+    visibleSessionLimit: 5,
+    priceMonthly: 9900,
+    templateEnabled: false,
+    isActive: false,
+  },
+  {
+    id: "large",
+    name: "무제한 방송",
+    maxChars: null,
+    visibleSessionLimit: null,
+    priceMonthly: 19900,
+    templateEnabled: true,
+    isActive: true,
+  },
+];
+
 export function getAdminProducts(): AdminProduct[] {
-  const list = readList<AdminProduct>(PRODUCTS_KEY, [
-    {
-      id: "free",
-      name: "무료 방송",
-      maxChars: 100,
-      visibleSessionLimit: 1,
-      priceMonthly: 0,
-      templateEnabled: false,
-      isActive: true,
-    },
-    {
-      id: "small",
-      name: "기본 방송",
-      maxChars: 500,
-      visibleSessionLimit: 5,
-      priceMonthly: 9900,
-      templateEnabled: false,
-      isActive: true,
-    },
-    {
-      id: "medium",
-      name: "기본 방송",
-      maxChars: 500,
-      visibleSessionLimit: 5,
-      priceMonthly: 9900,
-      templateEnabled: false,
-      isActive: false,
-    },
-    {
-      id: "large",
-      name: "무제한 방송",
-      maxChars: null,
-      visibleSessionLimit: null,
-      priceMonthly: 19900,
-      templateEnabled: true,
-      isActive: true,
-    },
-  ]);
-  return list.map((p) => ({
+  const list = readList<AdminProduct>(PRODUCTS_KEY, DEFAULT_ADMIN_PRODUCTS);
+  const byId = new Map(DEFAULT_ADMIN_PRODUCTS.map((p) => [p.id, p]));
+
+  const merged = list.map((p) => {
+    const def = byId.get(p.id);
+    if (!def) return p;
+    const next: AdminProduct = { ...def, ...p };
+    if (p.id === "free") {
+      next.maxChars = FREE_PLAN_BROADCAST_MAX_CHARS;
+    }
+    return next;
+  });
+
+  const seen = new Set(merged.map((p) => p.id));
+  for (const def of DEFAULT_ADMIN_PRODUCTS) {
+    if (!seen.has(def.id)) merged.push(def);
+  }
+
+  return merged.map((p) => ({
     ...p,
     visibleSessionLimit:
       p.visibleSessionLimit === undefined
@@ -272,7 +303,10 @@ export function getAdminProducts(): AdminProduct[] {
 }
 
 export function saveAdminProducts(list: AdminProduct[]) {
-  writeList(PRODUCTS_KEY, list);
+  const normalized = list.map((p) =>
+    p.id === "free" ? { ...p, maxChars: FREE_PLAN_BROADCAST_MAX_CHARS } : p
+  );
+  writeList(PRODUCTS_KEY, normalized);
 }
 
 export function getAdminPayments(): AdminPayment[] {

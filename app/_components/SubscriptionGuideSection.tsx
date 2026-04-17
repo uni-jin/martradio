@@ -43,7 +43,7 @@ export function SubscriptionGuideSection() {
         <div>
           <h3 className="text-base font-semibold text-stone-800">5. 사용 제한 안내</h3>
           <p className="mt-1">
-            구독 유형에 따라 방송 글자 수 및 저장 가능한 방송 수에 제한이 있습니다.
+            구독 유형에 따라 방송문 글자 수 및 저장 가능한 방송 수에 제한이 있습니다.
           </p>
           <p>제한 초과 시 추가 생성 또는 저장이 불가할 수 있습니다.</p>
         </div>

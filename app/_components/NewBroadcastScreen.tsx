@@ -6,6 +6,7 @@ import { getAllSessions, saveSession } from "@/lib/store";
 import { generateId, extractYoutubeId } from "@/lib/utils";
 import type { Session, SessionWithItems } from "@/lib/types";
 import { getCurrentUser, getMaxCharsForUser, getVisibleSessionCountForUser } from "@/lib/auth";
+import { FREE_PLAN_BROADCAST_MAX_CHARS } from "@/lib/adminData";
 import { saveAudio, getAudioBlob, hasStoredAudio } from "@/lib/audioStorage";
 import {
   DEFAULT_TTS,
@@ -18,7 +19,7 @@ import {
 } from "@/lib/ttsOptions";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
 import { getVoiceTemplatesUserFacing } from "@/lib/adminData";
-import { buildGoogleTtsSynthesizeBody } from "@/lib/ttsGoogleRequest";
+import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
 import { setYoutubeEmbedIframeVolume } from "@/lib/youtubeEmbedVolume";
 import {
   type BroadcastPlaybackCommitSnapshot,
@@ -37,7 +38,7 @@ function totalSecondsFromMinSec(minStr: string, secStr: string): number {
   return min * 60 + sec;
 }
 
-const DEMO_MAX_CHARS = 100;
+const DEMO_MAX_CHARS = FREE_PLAN_BROADCAST_MAX_CHARS;
 
 const DEMO_PREFILL_TITLE = "테스트 방송";
 const DEMO_PREFILL_CONTENT =
@@ -64,6 +65,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   const [bgmEndSec, setBgmEndSec] = useState("");
   const [bgmError, setBgmError] = useState<string | null>(null);
   const [musicMode, setMusicMode] = useState<"background" | "interval">("background");
+  const [musicSectionOpen, setMusicSectionOpen] = useState(false);
 
   const [hasAudio, setHasAudio] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -117,8 +119,19 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   }, [voiceListTick, user]);
   const planMaxChars: number | null = useMemo(() => getMaxCharsForUser(user), [user]);
   const maxChars: number | null = demoMode ? DEMO_MAX_CHARS : planMaxChars;
-  const contentLength = content.length;
-  const overLimit = maxChars != null && contentLength > maxChars;
+  const promoLength = promoRawText.length;
+  const overLimit = maxChars != null && promoLength > maxChars;
+
+  useEffect(() => {
+    if (
+      scriptError &&
+      scriptError.includes("초과했습니다") &&
+      maxChars != null &&
+      promoRawText.length <= maxChars
+    ) {
+      setScriptError(null);
+    }
+  }, [promoRawText.length, maxChars, scriptError]);
 
   const youtubeId = useMemo(() => {
     if (!bgmUrl.trim()) return null;
@@ -233,22 +246,10 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
         return;
       }
       const synth = buildGoogleTtsSynthesizeBody(content, gp, speed, ttsBreakSeconds);
-      const body: Record<string, unknown> = {
-        text: synth.text,
-        voice: synth.voice,
-        languageCode: synth.languageCode,
-        speakingRate: synth.speakingRate,
-        pitch: synth.pitch,
-        volumeGainDb: synth.volumeGainDb,
-        breakSeconds: synth.breakSeconds,
-      };
-      if (synth.sampleRateHertz != null) body.sampleRateHertz = synth.sampleRateHertz;
-      if (synth.effectsProfileId?.length) body.effectsProfileId = synth.effectsProfileId;
-
       const res = await fetch("/api/tts-google", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(googleTtsApiJsonBody(synth)),
       });
 
       if (!res.ok) {
@@ -272,6 +273,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
       const session: Session = {
         id: sessionId,
         title: title.trim(),
+        promoRawText: promoRawText.trim() || null,
         eventType: "FREE",
         customOpening: undefined,
         scheduledAt: null,
@@ -331,6 +333,12 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
       setScriptError("광고 문자 내용을 입력해 주세요.");
       return;
     }
+    if (maxChars != null && promoRawText.length > maxChars) {
+      setScriptError(
+        `광고 문자 내용이 구독 플랜 글자 수(${maxChars.toLocaleString()}자)를 초과했습니다. 내용을 줄여 주세요.`
+      );
+      return;
+    }
 
     setIsGeneratingScript(true);
     setScriptError(null);
@@ -347,7 +355,8 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
       if (!data.script?.trim()) {
         throw new Error("생성된 방송문이 없습니다.");
       }
-      setContent(data.script.trim());
+      const script = data.script.trim();
+      setContent(script);
     } catch (e) {
       setScriptError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -589,6 +598,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   const handleLoadSession = useCallback((session: SessionWithItems) => {
     committedPlaybackRef.current = null;
     setTitle(session.title ?? "");
+    setPromoRawText(session.promoRawText ?? "");
     setContent(session.generatedText ?? "");
     const bv = session.bgmVolume;
     setBgmVolume(
@@ -648,7 +658,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
               체험 모드입니다. 음성 생성과 재생은 로그인 없이 이용할 수 있으며, 저장되지는 않습니다.
             </p>
             <p>
-              방송 내용에는 최대 {DEMO_MAX_CHARS.toLocaleString("ko-KR")}자까지만 입력할 수 있습니다.
+              방송문은 최대 {DEMO_MAX_CHARS.toLocaleString("ko-KR")}자까지만 입력할 수 있습니다.
             </p>
             <p>
               저장·관리가 필요하면{" "}
@@ -688,11 +698,20 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
               />
             </div>
             <div>
-              <label className="text-base font-medium text-stone-700">광고 문자 내용</label>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <label htmlFor="new-broadcast-promo" className="text-base font-medium text-stone-700">
+                  광고 문자 내용
+                </label>
+                <span className="text-sm tabular-nums text-stone-500" aria-live="polite">
+                  광고문 {promoLength.toLocaleString()}
+                  {maxChars != null ? ` / ${maxChars.toLocaleString()}자` : "자"}
+                </span>
+              </div>
               <textarea
+                id="new-broadcast-promo"
                 value={promoRawText}
                 onChange={(e) => setPromoRawText(e.target.value)}
-                placeholder="마트의 광고 문자 그대로 붙여넣어 주세요."
+                placeholder="입력한 품목명과 단위, 가격 등을 바탕으로 방송을 자연스럽게 만들어 드립니다."
                 className="mt-1.5 min-h-[280px] w-full rounded-lg border border-stone-200 px-3 py-3 text-base leading-relaxed text-stone-800"
               />
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -709,10 +728,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
             </div>
             <div>
               <div className="text-base font-medium text-stone-700">
-                <span id="new-broadcast-content-label">
-                  방송 내용 미리보기 ({contentLength.toLocaleString()}
-                  {maxChars != null ? ` / ${maxChars.toLocaleString()}` : ""}자)
-                </span>
+                <span id="new-broadcast-content-label">방송 내용 미리보기</span>
               </div>
               <textarea
                 id="new-broadcast-content"
@@ -725,183 +741,199 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
               {overLimit && (
                 <p className="mt-1.5 text-base leading-relaxed text-red-600">
                   {demoMode
-                    ? `체험에서는 최대 ${DEMO_MAX_CHARS.toLocaleString()}자까지 입력할 수 있습니다.`
-                    : "글자 수 제한을 초과했습니다. 다른 플랜을 구독해 보세요."}
+                    ? `체험에서는 광고 문자를 최대 ${DEMO_MAX_CHARS.toLocaleString()}자까지 입력할 수 있습니다.`
+                    : "광고 문자 글자 수 제한을 초과했습니다. 다른 플랜을 구독해 보세요."}
                 </p>
               )}
               {!demoMode && maxChars == null && (
-                <p className="mt-1.5 text-base leading-relaxed text-stone-500">현재 플랜은 글자 수 제한이 없습니다.</p>
+                <p className="mt-1.5 text-base leading-relaxed text-stone-500">
+                  현재 플랜은 광고 문자 글자 수 제한이 없습니다.
+                </p>
               )}
             </div>
           </div>
         </section>
 
         <section className="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h2 className="text-2xl font-semibold text-stone-800">2. (선택) 음악</h2>
-          <p className="mt-2 text-base leading-relaxed text-stone-600">
-            방송 음성과 함께 사용할 YouTube 음악을 선택할 수 있습니다.
-            <br />
-            배경음악은 음성과 함께, 중간음악은 음성 뒤에 재생됩니다.
-          </p>
-
-          <div className="mt-4 space-y-4">
-            <div className="flex flex-wrap items-center gap-3 text-base text-stone-700">
-              <span className="text-base font-semibold text-stone-600">재생 방식</span>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="radio"
-                  name="musicMode"
-                  value="background"
-                  checked={musicMode === "background"}
-                  onChange={() => setMusicMode("background")}
-                  className="h-5 w-5 border-stone-300 text-amber-600"
-                />
-                <span>배경음악</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="radio"
-                  name="musicMode"
-                  value="interval"
-                  checked={musicMode === "interval"}
-                  onChange={() => setMusicMode("interval")}
-                  className="h-5 w-5 border-stone-300 text-amber-600"
-                />
-                <span>중간음악</span>
-              </label>
-            </div>
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <label className="text-base font-medium text-stone-700">YouTube URL</label>
-              <input
-                type="text"
-                value={bgmUrl}
-                onChange={(e) => setBgmUrl(e.target.value)}
-                placeholder="예: https://www.youtube.com/watch?v=..."
-                className="mt-1.5 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
-              />
+              <h2 className="text-2xl font-semibold text-stone-800">2. (선택) 음악</h2>
+              <p className="mt-2 text-base leading-relaxed text-stone-600">
+                방송 음성과 함께 사용할 YouTube 음악을 선택할 수 있습니다.
+                <br />
+                배경음악은 음성과 함께, 중간음악은 음성 뒤에 재생됩니다.
+              </p>
             </div>
-            {youtubeId ? (
-              <div className="mt-2 space-y-4">
-                <p className="text-base leading-relaxed text-stone-600">
-                  아래 미리듣기에서 지정한 구간이 제대로 재생되는지 확인해 보세요.
-                  <br />
-                  유튜브 영상의 원하는 구간만 재생할 수 있습니다.
-                </p>
-                <div className="flex flex-wrap items-center gap-4 text-base text-stone-700">
-                  <span className="text-base font-semibold text-stone-600">배경 음악 구간</span>
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="radio"
-                      name="bgmPlayRange"
-                      value="full"
-                      checked={bgmPlayRange === "full"}
-                      onChange={() => setBgmPlayRange("full")}
-                      className="h-5 w-5 border-stone-300 text-amber-600"
-                    />
-                    <span>전체 재생</span>
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="radio"
-                      name="bgmPlayRange"
-                      value="segment"
-                      checked={bgmPlayRange === "segment"}
-                      onChange={() => setBgmPlayRange("segment")}
-                      className="h-5 w-5 border-stone-300 text-amber-600"
-                    />
-                    <span>구간 재생</span>
-                  </label>
-                </div>
-                {bgmPlayRange === "segment" && (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="text-base font-medium text-stone-700">음악 시작 시간</label>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={bgmStartMin}
-                          onChange={(e) => setBgmStartMin(digitsOnly(e.target.value))}
-                          placeholder="0"
-                          className="w-20 rounded-lg border border-stone-200 px-2 py-2.5 text-center text-base text-stone-800"
-                        />
-                        <span className="text-base text-stone-600">분</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={bgmStartSec}
-                          onChange={(e) => setBgmStartSec(digitsOnly(e.target.value))}
-                          placeholder="0"
-                          className="w-20 rounded-lg border border-stone-200 px-2 py-2.5 text-center text-base text-stone-800"
-                        />
-                        <span className="text-base text-stone-600">초</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-base font-medium text-stone-700">음악 종료 시간</label>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={bgmEndMin}
-                          onChange={(e) => setBgmEndMin(digitsOnly(e.target.value))}
-                          placeholder="0"
-                          className="w-20 rounded-lg border border-stone-200 px-2 py-2.5 text-center text-base text-stone-800"
-                        />
-                        <span className="text-base text-stone-600">분</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={bgmEndSec}
-                          onChange={(e) => setBgmEndSec(digitsOnly(e.target.value))}
-                          placeholder="0"
-                          className="w-20 rounded-lg border border-stone-200 px-2 py-2.5 text-center text-base text-stone-800"
-                        />
-                        <span className="text-base text-stone-600">초</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {bgmError && <p className="text-base leading-relaxed text-red-600">{bgmError}</p>}
-                <div>
-                  <h4 className="text-base font-semibold text-stone-800">음악 볼륨</h4>
-                  <p className="mt-1 text-base leading-relaxed text-stone-600">
-                    방송과 함께 재생되거나 중간에 재생되는 YouTube 구간의 음량입니다.
-                  </p>
-                  <div className="mt-2 flex items-center gap-3">
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={bgmVolume}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        setBgmVolume(v);
-                        ytPlayer.setVolume(v);
-                        setYoutubeEmbedIframeVolume(previewIframeRef.current, v);
-                      }}
-                      className="h-2 flex-1 accent-amber-500"
-                    />
-                    <span className="w-12 text-base tabular-nums text-stone-700">{bgmVolume}%</span>
-                  </div>
-                </div>
-                <div className="aspect-video overflow-hidden rounded-xl border border-stone-200 bg-stone-900">
-                  <iframe
-                    ref={previewIframeRef}
-                    key={previewSrc ?? ""}
-                    src={previewSrc ?? undefined}
-                    className="h-full w-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                    title="배경 음악 미리듣기"
-                    onLoad={() =>
-                      setYoutubeEmbedIframeVolume(previewIframeRef.current, bgmVolume)
-                    }
-                  />
-                </div>
-              </div>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => setMusicSectionOpen((prev) => !prev)}
+              className="rounded-lg border border-stone-300 px-3 py-2 text-base font-medium text-stone-700 hover:bg-stone-50"
+              aria-expanded={musicSectionOpen}
+            >
+              {musicSectionOpen ? "접기" : "펼치기"}
+            </button>
           </div>
+
+          {musicSectionOpen && (
+            <div className="mt-4 space-y-4">
+              <div className="flex flex-wrap items-center gap-3 text-base text-stone-700">
+                <span className="text-base font-semibold text-stone-600">재생 방식</span>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="radio"
+                    name="musicMode"
+                    value="background"
+                    checked={musicMode === "background"}
+                    onChange={() => setMusicMode("background")}
+                    className="h-5 w-5 border-stone-300 text-amber-600"
+                  />
+                  <span>배경음악</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="radio"
+                    name="musicMode"
+                    value="interval"
+                    checked={musicMode === "interval"}
+                    onChange={() => setMusicMode("interval")}
+                    className="h-5 w-5 border-stone-300 text-amber-600"
+                  />
+                  <span>중간음악</span>
+                </label>
+              </div>
+              <div>
+                <label className="text-base font-medium text-stone-700">YouTube URL</label>
+                <input
+                  type="text"
+                  value={bgmUrl}
+                  onChange={(e) => setBgmUrl(e.target.value)}
+                  placeholder="예: https://www.youtube.com/watch?v=..."
+                  className="mt-1.5 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
+                />
+              </div>
+              {youtubeId ? (
+                <div className="mt-2 space-y-4">
+                  <p className="text-base leading-relaxed text-stone-600">
+                    아래 미리듣기에서 지정한 구간이 제대로 재생되는지 확인해 보세요.
+                    <br />
+                    유튜브 영상의 원하는 구간만 재생할 수 있습니다.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-4 text-base text-stone-700">
+                    <span className="text-base font-semibold text-stone-600">배경 음악 구간</span>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="bgmPlayRange"
+                        value="full"
+                        checked={bgmPlayRange === "full"}
+                        onChange={() => setBgmPlayRange("full")}
+                        className="h-5 w-5 border-stone-300 text-amber-600"
+                      />
+                      <span>전체 재생</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="bgmPlayRange"
+                        value="segment"
+                        checked={bgmPlayRange === "segment"}
+                        onChange={() => setBgmPlayRange("segment")}
+                        className="h-5 w-5 border-stone-300 text-amber-600"
+                      />
+                      <span>구간 재생</span>
+                    </label>
+                  </div>
+                  {bgmPlayRange === "segment" && (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="text-base font-medium text-stone-700">음악 시작 시간</label>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={bgmStartMin}
+                            onChange={(e) => setBgmStartMin(digitsOnly(e.target.value))}
+                            placeholder="0"
+                            className="w-20 rounded-lg border border-stone-200 px-2 py-2.5 text-center text-base text-stone-800"
+                          />
+                          <span className="text-base text-stone-600">분</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={bgmStartSec}
+                            onChange={(e) => setBgmStartSec(digitsOnly(e.target.value))}
+                            placeholder="0"
+                            className="w-20 rounded-lg border border-stone-200 px-2 py-2.5 text-center text-base text-stone-800"
+                          />
+                          <span className="text-base text-stone-600">초</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-base font-medium text-stone-700">음악 종료 시간</label>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={bgmEndMin}
+                            onChange={(e) => setBgmEndMin(digitsOnly(e.target.value))}
+                            placeholder="0"
+                            className="w-20 rounded-lg border border-stone-200 px-2 py-2.5 text-center text-base text-stone-800"
+                          />
+                          <span className="text-base text-stone-600">분</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={bgmEndSec}
+                            onChange={(e) => setBgmEndSec(digitsOnly(e.target.value))}
+                            placeholder="0"
+                            className="w-20 rounded-lg border border-stone-200 px-2 py-2.5 text-center text-base text-stone-800"
+                          />
+                          <span className="text-base text-stone-600">초</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {bgmError && <p className="text-base leading-relaxed text-red-600">{bgmError}</p>}
+                  <div>
+                    <h4 className="text-base font-semibold text-stone-800">음악 볼륨</h4>
+                    <p className="mt-1 text-base leading-relaxed text-stone-600">
+                      방송과 함께 재생되거나 중간에 재생되는 YouTube 구간의 음량입니다.
+                    </p>
+                    <div className="mt-2 flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={bgmVolume}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setBgmVolume(v);
+                          ytPlayer.setVolume(v);
+                          setYoutubeEmbedIframeVolume(previewIframeRef.current, v);
+                        }}
+                        className="h-2 flex-1 accent-amber-500"
+                      />
+                      <span className="w-12 text-base tabular-nums text-stone-700">{bgmVolume}%</span>
+                    </div>
+                  </div>
+                  <div className="aspect-video overflow-hidden rounded-xl border border-stone-200 bg-stone-900">
+                    <iframe
+                      ref={previewIframeRef}
+                      key={previewSrc ?? ""}
+                      src={previewSrc ?? undefined}
+                      className="h-full w-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      title="배경 음악 미리듣기"
+                      onLoad={() =>
+                        setYoutubeEmbedIframeVolume(previewIframeRef.current, bgmVolume)
+                      }
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
         </section>
 
         <section className="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">

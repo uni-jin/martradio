@@ -8,11 +8,14 @@ export type AuthUser = {
   planId?: PlanId;
 };
 
-import { syncPaymentReferrerForUser } from "@/lib/adminData";
+import {
+  FREE_PLAN_BROADCAST_MAX_CHARS,
+  getAdminProducts,
+  syncPaymentReferrerForUser,
+} from "@/lib/adminData";
 
 const AUTH_STORAGE_KEY = "mart-radio-auth-user";
 const USERS_STORAGE_KEY = "mart-radio-users";
-const ADMIN_PRODUCTS_STORAGE_KEY = "mart-radio-admin-products";
 
 export type StoredUser = {
   id: string;
@@ -243,20 +246,22 @@ export function getPricingCtaLabel(planId: PlanId | undefined): string {
   return "구독 업그레이드";
 }
 
+export { FREE_PLAN_BROADCAST_MAX_CHARS } from "@/lib/adminData";
+
 export function getMaxCharsForUser(user: AuthUser | null): number | null {
-  if (!user) return 100;
+  if (!user) return FREE_PLAN_BROADCAST_MAX_CHARS;
   const plan = user.planId ?? "free";
+  if (plan === "free") {
+    return FREE_PLAN_BROADCAST_MAX_CHARS;
+  }
   if (typeof window !== "undefined") {
     try {
-      const raw = window.localStorage.getItem(ADMIN_PRODUCTS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Array<{ id?: unknown; maxChars?: unknown }>;
-        const matched = parsed.find((p) => p.id === plan);
-        if (matched && ("maxChars" in matched)) {
-          if (matched.maxChars === null) return null;
-          if (typeof matched.maxChars === "number" && Number.isFinite(matched.maxChars)) {
-            return matched.maxChars;
-          }
+      const products = getAdminProducts();
+      const matched = products.find((p) => p.id === plan);
+      if (matched && "maxChars" in matched) {
+        if (matched.maxChars === null) return null;
+        if (typeof matched.maxChars === "number" && Number.isFinite(matched.maxChars)) {
+          return matched.maxChars;
         }
       }
     } catch {
@@ -264,8 +269,6 @@ export function getMaxCharsForUser(user: AuthUser | null): number | null {
     }
   }
   switch (plan) {
-    case "free":
-      return 100;
     case "small":
       return 500;
     case "medium":
@@ -273,7 +276,7 @@ export function getMaxCharsForUser(user: AuthUser | null): number | null {
     case "large":
       return null;
     default:
-      return 100;
+      return FREE_PLAN_BROADCAST_MAX_CHARS;
   }
 }
 
@@ -282,18 +285,15 @@ export function getVisibleSessionCountForUser(user: AuthUser | null): number | n
   const plan = user.planId ?? "free";
   if (typeof window !== "undefined") {
     try {
-      const raw = window.localStorage.getItem(ADMIN_PRODUCTS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Array<{ id?: unknown; visibleSessionLimit?: unknown }>;
-        const matched = parsed.find((p) => p.id === plan);
-        if (matched && ("visibleSessionLimit" in matched)) {
-          if (matched.visibleSessionLimit === null) return null;
-          if (
-            typeof matched.visibleSessionLimit === "number" &&
-            Number.isFinite(matched.visibleSessionLimit)
-          ) {
-            return matched.visibleSessionLimit;
-          }
+      const products = getAdminProducts();
+      const matched = products.find((p) => p.id === plan);
+      if (matched && "visibleSessionLimit" in matched) {
+        if (matched.visibleSessionLimit === null) return null;
+        if (
+          typeof matched.visibleSessionLimit === "number" &&
+          Number.isFinite(matched.visibleSessionLimit)
+        ) {
+          return matched.visibleSessionLimit;
         }
       }
     } catch {

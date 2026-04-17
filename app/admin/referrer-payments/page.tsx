@@ -185,13 +185,13 @@ export default function AdminReferrerPaymentsPage() {
         <table className="w-max min-w-full border-collapse text-sm">
           <thead className="bg-stone-50 text-stone-600">
             <tr>
-              <th rowSpan={2} className="border-b border-stone-200 px-2 py-2 text-left align-middle">
+              <th rowSpan={2} className="border-b border-stone-200 px-2 py-2 text-center align-middle">
                 No.
               </th>
-              <th rowSpan={2} className="border-b border-stone-200 px-2 py-2 text-left align-middle">
+              <th rowSpan={2} className="border-b border-stone-200 px-2 py-2 text-center align-middle">
                 생성일
               </th>
-              <th rowSpan={2} className="border-b border-stone-200 px-2 py-2 text-left align-middle">
+              <th rowSpan={2} className="border-b border-stone-200 px-2 py-2 text-center align-middle">
                 추천인
               </th>
               {Array.from({ length: 12 }, (_, i) => (
@@ -223,9 +223,9 @@ export default function AdminReferrerPaymentsPage() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.referrer.id} className="border-t border-stone-100">
-                <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.no}</td>
-                <td className="whitespace-nowrap px-2 py-2">{formatReferrerCreated(row.referrer)}</td>
-                <td className="whitespace-nowrap px-2 py-2">{row.referrer.name}</td>
+                <td className="whitespace-nowrap px-2 py-2 text-center tabular-nums">{row.no}</td>
+                <td className="whitespace-nowrap px-2 py-2 text-center">{formatReferrerCreated(row.referrer)}</td>
+                <td className="whitespace-nowrap px-2 py-2 text-center">{row.referrer.name}</td>
                 {row.months.map((c, mi) => (
                   <Fragment key={`${row.referrer.id}-m-${mi}`}>
                     <td className="min-w-[4.5rem] border-l border-stone-100 px-2 py-2 text-center text-xs tabular-nums whitespace-nowrap">
