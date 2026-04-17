@@ -6,10 +6,7 @@ import Link from "next/link";
 import AdminShell from "@/app/_components/AdminShell";
 import {
   computeAdminDashboardStats,
-  getAdminProducts,
-  getAdminPayments,
-  getAdminUsers,
-  getVoiceTemplates,
+  type AdminPayment,
   type AdminDashboardStats,
   type AdminReferrer,
 } from "@/lib/adminData";
@@ -82,6 +79,10 @@ function KpiCard({
 export default function AdminHomePage() {
   const [stats, setStats] = useState<AdminDashboardStats | null>(null);
   const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
+  const [products, setProducts] = useState<{ id: string; name: string }[]>([]);
+  const [users, setUsers] = useState<Record<string, unknown>[]>([]);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
+  const [voicesPaidOnlyCount, setVoicesPaidOnlyCount] = useState(0);
 
   useEffect(() => {
     let canceled = false;
@@ -91,7 +92,57 @@ export default function AdminHomePage() {
       const list = Array.isArray(data.referrers) ? data.referrers : [];
       if (canceled) return;
       setReferrers(list);
-      setStats(computeAdminDashboardStats(list));
+      const usersRes = await fetch("/api/admin/users", { credentials: "include" });
+      const usersData = (await usersRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
+      const loadedUsers = Array.isArray(usersData.users) ? usersData.users : [];
+      if (canceled) return;
+      setUsers(loadedUsers);
+      const prodRes = await fetch("/api/admin/data/products", { credentials: "include" });
+      const prodData = (await prodRes.json().catch(() => ({}))) as { products?: { id: string; name: string }[] };
+      const loadedProducts = Array.isArray(prodData.products) ? prodData.products : [];
+      if (canceled) return;
+      setProducts(loadedProducts);
+      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
+      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
+      const loadedPayments = Array.isArray(payData.payments) ? payData.payments : [];
+      if (canceled) return;
+      setPayments(loadedPayments);
+      const voiceRes = await fetch("/api/admin/data/voices", { credentials: "include" });
+      const voiceData = (await voiceRes.json().catch(() => ({}))) as { voices?: { paidOnly?: boolean }[] };
+      if (canceled) return;
+      setVoicesPaidOnlyCount((voiceData.voices ?? []).filter((v) => v.paidOnly === true).length);
+      const paidUsers = loadedUsers.filter((u) => String(u.planId ?? "free") !== "free").length;
+      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+      const paymentsThisMonth = loadedPayments.filter((p) => new Date(p.paidAt).getTime() >= monthStart).length;
+      const totalRevenue = loadedPayments.reduce((sum, p) => sum + p.amount, 0);
+      const planMap = new Map<string, number>();
+      for (const u of loadedUsers) {
+        const k = String(u.planId ?? "free");
+        planMap.set(k, (planMap.get(k) ?? 0) + 1);
+      }
+      setStats({
+        totalUsers: loadedUsers.length,
+        paidUsers,
+        paymentCount: loadedPayments.length,
+        totalRevenue,
+        paymentsThisMonth,
+        referrersTotal: list.length,
+        referrersActive: list.filter((r) => r.isActive).length,
+        templatesTotal: 0,
+        templatesPaidOnly: 0,
+        productsActive: loadedProducts.filter((p: any) => p.isActive !== false).length,
+        voicesEnabled: (voiceData.voices ?? []).filter((v: any) => v.enabled !== false).length,
+        voicesTotal: (voiceData.voices ?? []).length,
+        payments7d: loadedPayments.filter(
+          (p) => new Date(p.paidAt).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000
+        ).length,
+        revenue7d: loadedPayments
+          .filter((p) => new Date(p.paidAt).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000)
+          .reduce((sum, p) => sum + p.amount, 0),
+        planBreakdown: [...planMap.entries()].map(([key, count]) => ({ key, label: key, count })),
+        topReferrers: computeAdminDashboardStats(list).topReferrers,
+        recentPayments: loadedPayments.slice().sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime()).slice(0, 10),
+      });
     })();
     return () => {
       canceled = true;
@@ -100,16 +151,15 @@ export default function AdminHomePage() {
 
   const productNameById = useMemo(() => {
     const m = new Map<string, string>();
-    for (const p of getAdminProducts()) {
+    for (const p of products) {
       m.set(p.id, p.name);
     }
     return m;
-  }, []);
+  }, [products]);
 
   const monthRevenue = useMemo(() => {
     if (!stats) return 0;
     if (typeof window === "undefined") return 0;
-    const payments = getAdminPayments();
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthStartMs = monthStart.getTime();
@@ -120,16 +170,10 @@ export default function AdminHomePage() {
       }
       return sum;
     }, 0);
-  }, [stats]);
-
-  const voicesPaidOnlyCount = useMemo(() => {
-    if (typeof window === "undefined") return 0;
-    return getVoiceTemplates().filter((v) => v.paidOnly === true).length;
-  }, []);
+  }, [payments, stats]);
 
   const recentPaymentRows = useMemo(() => {
     if (!stats || typeof window === "undefined") return [];
-    const users = getAdminUsers();
     const refNameById = new Map(referrers.map((r) => [r.id, r.name]));
     const byId = new Map<string, Record<string, unknown>>();
     const byUsername = new Map<string, Record<string, unknown>>();
@@ -152,7 +196,7 @@ export default function AdminHomePage() {
       const personName = u && typeof u.name === "string" && u.name.trim() ? u.name.trim() : "-";
       return { p, martName, personName, referrerLabel };
     });
-  }, [stats, referrers]);
+  }, [referrers, stats, users]);
 
   return (
     <AdminShell title="">

@@ -2,10 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { safeApiErrorMessage } from "./apiSafeError";
 
 describe("safeApiErrorMessage", () => {
-  const orig = process.env.NODE_ENV;
-
   afterEach(() => {
-    process.env.NODE_ENV = orig;
     vi.unstubAllEnvs();
   });
 

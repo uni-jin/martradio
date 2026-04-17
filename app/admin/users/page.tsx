@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AdminShell from "@/app/_components/AdminShell";
 import { useAdminSession } from "@/app/_components/AdminSessionProvider";
-import { getAdminUsers, getPaymentsForUser, type AdminReferrer } from "@/lib/adminData";
+import type { AdminPayment, AdminReferrer } from "@/lib/adminData";
 import { getPlanDisplayLabel } from "@/lib/auth";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 import {
@@ -120,7 +120,8 @@ function inferJoinedAt(u: Record<string, unknown>): string | null {
 export default function AdminUsersPage() {
   const router = useRouter();
   const { session } = useAdminSession();
-  const users = useMemo(() => getAdminUsers(), []);
+  const [users, setUsers] = useState<Record<string, unknown>[]>([]);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
   const scopeReferrerId =
     session?.role === "referrer_admin" && session.referrerId ? session.referrerId : null;
   const scopedUsers = useMemo(() => {
@@ -148,6 +149,12 @@ export default function AdminUsersPage() {
       if (!canceled) {
         setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
       }
+      const usersRes = await fetch("/api/admin/users", { credentials: "include" });
+      const usersData = (await usersRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
+      if (!canceled) setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
+      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
+      if (!canceled) setPayments(Array.isArray(payData.payments) ? payData.payments : []);
     })();
     return () => {
       canceled = true;
@@ -196,9 +203,11 @@ export default function AdminUsersPage() {
       const username = String(u.username ?? "");
       const localPlanId = String(u.planId ?? "free");
       const sub = subsByUserId.get(uid);
-      const payments = username ? getPaymentsForUser(uid, username) : [];
-      const effectivePlanId = effectivePlanIdForSubscriptionUi(sub ?? null, localPlanId, payments);
-      const resolved = resolveSubscriptionPeriodDisplayIso({ server: sub ?? null, payments });
+      const userPayments = username
+        ? payments.filter((p) => p.userId === uid || p.username === username)
+        : [];
+      const effectivePlanId = effectivePlanIdForSubscriptionUi(sub ?? null, localPlanId, userPayments);
+      const resolved = resolveSubscriptionPeriodDisplayIso({ server: sub ?? null, payments: userPayments });
       const serverLike = sub
         ? {
             planId: sub.planId,
@@ -223,7 +232,7 @@ export default function AdminUsersPage() {
       });
     }
     return m;
-  }, [scopedUsers, subsByUserId]);
+  }, [payments, scopedUsers, subsByUserId]);
 
   const filteredUsers = useMemo(() => {
     const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : NaN;

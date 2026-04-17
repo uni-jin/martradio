@@ -6,8 +6,8 @@ import { useParams } from "next/navigation";
 import AdminShell from "@/app/_components/AdminShell";
 import { useAdminSession } from "@/app/_components/AdminSessionProvider";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
-import { getAdminProducts, getAdminUsers, getPaymentsForUser, type AdminReferrer } from "@/lib/adminData";
-import { getPlanDisplayLabel, updateUserReferrerByAdmin } from "@/lib/auth";
+import type { AdminPayment, AdminReferrer } from "@/lib/adminData";
+import { getPlanDisplayLabel } from "@/lib/auth";
 import { buildPaymentOrderNoMap } from "@/lib/adminPaymentOrderNo";
 import { billingPeriodsForPaymentHistoryOldestFirst } from "@/lib/subscriptionPeriod";
 import {
@@ -32,18 +32,19 @@ export default function AdminUserDetailPage() {
   const { session } = useAdminSession();
   const params = useParams();
   const userId = String(params.id ?? "");
-  const [usersRefreshTick, setUsersRefreshTick] = useState(0);
+  const [users, setUsers] = useState<Record<string, unknown>[]>([]);
+  const [products, setProducts] = useState<{ id: string; name: string; priceMonthly: number }[]>([]);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
   const scopeReferrerId =
     session?.role === "referrer_admin" && session.referrerId ? session.referrerId : null;
   const user = useMemo(
     () => {
-      void usersRefreshTick;
-      const found = getAdminUsers().find((u) => String(u.id) === userId);
+      const found = users.find((u) => String(u.id) === userId);
       if (!found) return undefined;
       if (scopeReferrerId && String(found.referrerId ?? "") !== scopeReferrerId) return undefined;
       return found;
     },
-    [scopeReferrerId, userId, usersRefreshTick]
+    [scopeReferrerId, userId, users]
   );
   const canManageReferrer = session?.role === "admin";
 
@@ -55,6 +56,15 @@ export default function AdminUserDetailPage() {
       const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
       if (canceled) return;
       setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+      const usersRes = await fetch("/api/admin/users", { credentials: "include" });
+      const usersData = (await usersRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
+      if (!canceled) setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+      const prodRes = await fetch("/api/admin/data/products", { credentials: "include" });
+      const prodData = (await prodRes.json().catch(() => ({}))) as { products?: { id: string; name: string; priceMonthly: number }[] };
+      if (!canceled) setProducts(Array.isArray(prodData.products) ? prodData.products : []);
+      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
+      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
+      if (!canceled) setPayments(Array.isArray(payData.payments) ? payData.payments : []);
     })();
     return () => {
       canceled = true;
@@ -103,8 +113,17 @@ export default function AdminUserDetailPage() {
         setReferrerSaveError("추천인 변경 권한이 없습니다.");
         return;
       }
-      updateUserReferrerByAdmin(userId, draftReferrerId.trim() || null);
-      setUsersRefreshTick((t) => t + 1);
+      void fetch(`/api/admin/users/${encodeURIComponent(userId)}/referrer`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referrerId: draftReferrerId.trim() || null }),
+      });
+      setUsers((prev) =>
+        prev.map((u) =>
+          String(u.id) === userId ? { ...u, referrerId: draftReferrerId.trim() || null } : u
+        )
+      );
       window.alert("저장되었습니다.");
     } catch (e) {
       setReferrerSaveError(e instanceof Error ? e.message : "저장에 실패했습니다.");
@@ -176,19 +195,19 @@ export default function AdminUserDetailPage() {
   }, [loadSubscription]);
 
   const username = String(user?.username ?? "");
-  const payments = useMemo(() => {
+  const userPayments = useMemo(() => {
     if (!userId || !username) return [];
-    return getPaymentsForUser(userId, username);
-  }, [userId, username]);
+    return payments.filter((p) => p.userId === userId || p.username === username);
+  }, [payments, userId, username]);
 
   const productNameById = useMemo(
-    () => new Map(getAdminProducts().map((p) => [p.id, p.name])),
-    []
+    () => new Map(products.map((p) => [p.id, p.name])),
+    [products]
   );
 
   const productPriceById = useMemo(
-    () => new Map(getAdminProducts().map((p) => [p.id, p.priceMonthly])),
-    []
+    () => new Map(products.map((p) => [p.id, p.priceMonthly])),
+    [products]
   );
 
   const inferredJoinedAt = useMemo(() => {
@@ -207,16 +226,16 @@ export default function AdminUserDetailPage() {
       effectivePlanIdForSubscriptionUi(
         subscription,
         typeof user?.planId === "string" ? user.planId : null,
-        payments
+        userPayments
       ),
-    [subscription, user?.planId, payments]
+    [subscription, user?.planId, userPayments]
   );
 
   const planText = useMemo(() => getPlanDisplayLabel(effectivePlanId), [effectivePlanId]);
 
   const { currentPeriodEndIso, nextPaymentDueIso } = useMemo(
-    () => resolveSubscriptionPeriodDisplayIso({ server: subscription, payments }),
-    [subscription, payments]
+    () => resolveSubscriptionPeriodDisplayIso({ server: subscription, payments: userPayments }),
+    [subscription, userPayments]
   );
 
   const nextBillingPlanId = useMemo(
@@ -235,8 +254,8 @@ export default function AdminUserDetailPage() {
       : null;
 
   const paymentRows = useMemo(() => {
-    const orderNoMap = buildPaymentOrderNoMap(payments);
-    const asc = [...payments].sort(
+    const orderNoMap = buildPaymentOrderNoMap(userPayments);
+    const asc = [...userPayments].sort(
       (a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime()
     );
     const periods = billingPeriodsForPaymentHistoryOldestFirst(asc, {
@@ -251,7 +270,7 @@ export default function AdminUserDetailPage() {
         nextPaymentLabel: b ? formatYmdKo(b.nextPaymentDueOn) : "—",
       };
     });
-  }, [payments, subscription?.currentPeriodEnd]);
+  }, [userPayments, subscription?.currentPeriodEnd]);
 
   return (
     <AdminShell title="회원 상세">

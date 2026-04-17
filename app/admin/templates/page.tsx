@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
-import { getAdminTemplates, saveAdminTemplates, type AdminTemplate } from "@/lib/adminData";
+import type { AdminTemplate } from "@/lib/adminData";
 
 export default function AdminTemplatesPage() {
-  const [templates, setTemplates] = useState<AdminTemplate[]>(() => getAdminTemplates());
+  const [templates, setTemplates] = useState<AdminTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -14,9 +15,31 @@ export default function AdminTemplatesPage() {
   const [paidOnly, setPaidOnly] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/data/templates", { credentials: "include" });
+        const data = (await res.json().catch(() => ({}))) as { templates?: AdminTemplate[] };
+        if (cancelled) return;
+        setTemplates(Array.isArray(data.templates) ? data.templates : []);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const persist = (next: AdminTemplate[]) => {
     setTemplates(next);
-    saveAdminTemplates(next);
+    void fetch("/api/admin/data/templates", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ templates: next }),
+    });
   };
 
   const resetForm = () => {
@@ -104,6 +127,7 @@ export default function AdminTemplatesPage() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
+        {loading ? <p className="text-sm text-stone-500">불러오는 중…</p> : null}
         {templates.map((t) => (
           <div key={t.id} className="rounded-xl border border-stone-200 p-3">
             <p className="text-sm font-medium text-stone-800">{t.name}</p>

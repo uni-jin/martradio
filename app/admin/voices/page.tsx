@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import { generateId } from "@/lib/utils";
 import type { VoiceTemplate, VoiceTtsEngine } from "@/lib/voiceTemplateTypes";
-import { getVoiceTemplates, saveVoiceTemplates } from "@/lib/adminData";
 import { GOOGLE_TTS_EFFECTS_PROFILE_OPTIONS } from "@/lib/googleTtsEffects";
 import { GEMINI_31_FLASH_TTS_VOICE_NAMES } from "@/lib/geminiTtsVoiceNames";
 import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
@@ -64,15 +63,18 @@ export default function AdminVoicesPage() {
   /** 미리듣기 생성 중인 항목 id, 편집 폼은 "__editing__" */
   const [previewingKey, setPreviewingKey] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const previewBlobUrlRef = useRef<string | null>(null);
 
-  const refresh = useCallback(() => {
-    setList(getVoiceTemplates());
+  const refresh = useCallback(async () => {
+    const res = await fetch("/api/admin/data/voices", { credentials: "include" });
+    const data = (await res.json().catch(() => ({}))) as { voices?: VoiceTemplate[] };
+    setList(Array.isArray(data.voices) ? data.voices : []);
   }, []);
 
   useEffect(() => {
-    refresh();
+    void refresh().finally(() => setLoading(false));
   }, [refresh]);
 
   useEffect(() => {
@@ -158,8 +160,13 @@ export default function AdminVoicesPage() {
   };
 
   const persist = (next: VoiceTemplate[]) => {
-    saveVoiceTemplates(next);
     setList(next);
+    void fetch("/api/admin/data/voices", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voices: next }),
+    });
     try {
       window.dispatchEvent(new CustomEvent("mart-voice-templates-updated"));
     } catch {
@@ -562,6 +569,7 @@ export default function AdminVoicesPage() {
       )}
 
       <div className="space-y-2">
+        {loading ? <p className="text-sm text-stone-500">불러오는 중…</p> : null}
         {list.map((v) => (
           <div
             key={v.id}

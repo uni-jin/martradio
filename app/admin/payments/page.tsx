@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import { useAdminSession } from "@/app/_components/AdminSessionProvider";
-import type { AdminPayment } from "@/lib/adminData";
-import { getAdminPayments, getAdminProducts, getAdminUsers, type AdminReferrer } from "@/lib/adminData";
+import type { AdminPayment, AdminReferrer } from "@/lib/adminData";
 import { getPlanDisplayLabel } from "@/lib/auth";
 import { buildPaymentOrderNoMap } from "@/lib/adminPaymentOrderNo";
 import { billingPeriodsForPaymentHistoryOldestFirst } from "@/lib/subscriptionPeriod";
@@ -24,18 +23,20 @@ function userGroupKey(p: AdminPayment): string {
 
 export default function AdminPaymentsPage() {
   const { session } = useAdminSession();
-  const products = useMemo(() => getAdminProducts(), []);
+  const [products, setProducts] = useState<
+    { id: string; name: string; priceMonthly: number; isActive?: boolean }[]
+  >([]);
   const productsForPaymentFilter = useMemo(
     () => products.filter((p) => p.id !== "free"),
     [products]
   );
-  const payments = useMemo(() => getAdminPayments(), []);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
   const productPriceById = useMemo(
     () => new Map(products.map((p) => [p.id, p.priceMonthly])),
     [products]
   );
 
-  const users = useMemo(() => getAdminUsers(), []);
+  const [users, setUsers] = useState<Record<string, unknown>[]>([]);
   const scopeReferrerId =
     session?.role === "referrer_admin" && session.referrerId ? session.referrerId : null;
   const scopedUsers = useMemo(() => {
@@ -50,6 +51,17 @@ export default function AdminPaymentsPage() {
       const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
       if (canceled) return;
       setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+      const userRes = await fetch("/api/admin/users", { credentials: "include" });
+      const userData = (await userRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
+      if (!canceled) setUsers(Array.isArray(userData.users) ? userData.users : []);
+      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
+      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
+      if (!canceled) setPayments(Array.isArray(payData.payments) ? payData.payments : []);
+      const prodRes = await fetch("/api/admin/data/products", { credentials: "include" });
+      const prodData = (await prodRes.json().catch(() => ({}))) as {
+        products?: { id: string; name: string; priceMonthly: number; isActive?: boolean }[];
+      };
+      if (!canceled) setProducts(Array.isArray(prodData.products) ? prodData.products : []);
     })();
     return () => {
       canceled = true;

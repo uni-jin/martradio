@@ -2,8 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
-import type { AdminReferrer } from "@/lib/adminData";
-import { getAdminPayments, getAdminUsers } from "@/lib/adminData";
+import type { AdminPayment, AdminReferrer } from "@/lib/adminData";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 function inferJoinedAt(u: Record<string, unknown>): string | null {
@@ -55,9 +54,9 @@ function buildMonthStats(
 }
 
 export default function AdminReferrerPaymentsPage() {
-  const payments = useMemo(() => getAdminPayments(), []);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
   const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
-  const users = useMemo(() => getAdminUsers(), []);
+  const [users, setUsers] = useState<Record<string, unknown>[]>([]);
 
   useEffect(() => {
     let canceled = false;
@@ -66,6 +65,12 @@ export default function AdminReferrerPaymentsPage() {
       const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
       if (canceled) return;
       setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+      const usersRes = await fetch("/api/admin/users", { credentials: "include" });
+      const usersData = (await usersRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
+      if (!canceled) setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
+      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
+      if (!canceled) setPayments(Array.isArray(payData.payments) ? payData.payments : []);
     })();
     return () => {
       canceled = true;

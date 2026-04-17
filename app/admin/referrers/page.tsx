@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AdminShell from "@/app/_components/AdminShell";
 import { getCurrentAdmin } from "@/lib/adminAuth";
-import { getAdminPayments, getAdminUsers, type AdminReferrer } from "@/lib/adminData";
+import type { AdminPayment, AdminReferrer } from "@/lib/adminData";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 type ActiveFilter = "all" | "active" | "inactive";
@@ -20,6 +20,8 @@ export default function AdminReferrersPage() {
   const router = useRouter();
   const isSuper = getCurrentAdmin()?.role === "admin";
   const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
+  const [users, setUsers] = useState<Record<string, unknown>[]>([]);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
 
   useEffect(() => {
     let canceled = false;
@@ -28,14 +30,17 @@ export default function AdminReferrersPage() {
       const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
       if (canceled) return;
       setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+      const usersRes = await fetch("/api/admin/users", { credentials: "include" });
+      const usersData = (await usersRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
+      if (!canceled) setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
+      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
+      if (!canceled) setPayments(Array.isArray(payData.payments) ? payData.payments : []);
     })();
     return () => {
       canceled = true;
     };
   }, []);
-  const users = useMemo(() => getAdminUsers(), []);
-  const payments = useMemo(() => getAdminPayments(), []);
-
   const [periodType, setPeriodType] = useState("생성일");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");

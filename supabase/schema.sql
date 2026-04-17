@@ -13,6 +13,29 @@ create table if not exists public.app_users (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.admin_kv (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.admin_payments (
+  id text primary key,
+  user_id text not null,
+  username text not null,
+  product_id text not null,
+  amount integer not null,
+  paid_at timestamptz not null,
+  referrer_id text null,
+  source text null,
+  payment_key text null,
+  order_id text null,
+  status text null
+);
+
+create index if not exists idx_admin_payments_paid_at on public.admin_payments (paid_at desc);
+create index if not exists idx_admin_payments_user on public.admin_payments (user_id, username);
+
 create table if not exists public.broadcast_sessions (
   owner_user_id text not null,
   session_id text not null,
