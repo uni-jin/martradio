@@ -23,7 +23,7 @@ export default function ClientTopBar() {
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const syncFromStorage = () => {
+    const syncFromStorage = async () => {
       const isAdminPath = (pathname ?? "").startsWith("/admin");
       if (isAdminPath) {
         const cached = getCurrentAdmin();
@@ -44,10 +44,10 @@ export default function ClientTopBar() {
       setAdminId(null);
     };
 
-    syncFromStorage();
+    void syncFromStorage();
 
     const handler = () => {
-      syncFromStorage();
+      void syncFromStorage();
     };
 
     window.addEventListener("mart-plan-updated", handler as EventListener);
