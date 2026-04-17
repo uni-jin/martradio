@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getAdminProducts, getPaymentsForUser } from "@/lib/adminData";
 import type { PlanId } from "@/lib/auth";
-import { getCurrentUser, getPlanLabel } from "@/lib/auth";
+import { getCurrentUser, getPlanLabel, refreshCurrentUser } from "@/lib/auth";
 import {
   effectivePlanIdForSubscriptionUi,
   isPaidSubscriptionPlanId,
@@ -86,7 +86,7 @@ export default function SubscriptionPage() {
   };
 
   const refreshSubscriptionFromServer = useCallback(async () => {
-    const u = getCurrentUser();
+    const u = await refreshCurrentUser();
     if (!u?.id) return;
     try {
       const res = await fetch(`/api/subscription/status?userId=${encodeURIComponent(u.id)}`);
@@ -100,12 +100,14 @@ export default function SubscriptionPage() {
   }, []);
 
   useEffect(() => {
-    const u = getCurrentUser();
-    if (!u) return;
-    setUserId(u.id);
-    setUsername(u.email);
-    setLocalPlanId(u.planId ?? "free");
-    void refreshSubscriptionFromServer();
+    void (async () => {
+      const u = await refreshCurrentUser();
+      if (!u) return;
+      setUserId(u.id);
+      setUsername(u.email);
+      setLocalPlanId(u.planId ?? "free");
+      await refreshSubscriptionFromServer();
+    })();
   }, [refreshSubscriptionFromServer]);
 
   const runCancelScheduledReservation = useCallback(async (): Promise<

@@ -24,7 +24,7 @@ import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
 import { extractYoutubeId } from "@/lib/utils";
 import { getVoiceTemplateById, getVoiceTemplatesUserFacing } from "@/lib/adminData";
 import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, refreshCurrentUser, type AuthUser } from "@/lib/auth";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 export default function PlayBroadcastPage() {
@@ -49,7 +49,10 @@ export default function PlayBroadcastPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [bgmVolume, setBgmVolume] = useState(40);
-  const currentUser = useMemo(() => getCurrentUser(), []);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  useEffect(() => {
+    void refreshCurrentUser().then(setCurrentUser);
+  }, []);
   const audioRef = useRef<HTMLAudioElement>(null);
   const blobUrlRef = useRef<string | null>(null);
   const repeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,9 +91,10 @@ export default function PlayBroadcastPage() {
 
   useEffect(() => {
     if (!id) return;
-    const s = getSession(id);
-    setSession(s ?? null);
-    if (s) {
+    const sync = () => {
+      const s = getSession(id);
+      setSession(s ?? null);
+      if (s) {
       musicModeRef.current = s.musicMode === "background" ? "background" : "interval";
       setRepeatMinutes(s.repeatMinutes);
       // 저장된 값이 명시적으로 azure일 때만 Azure, 그 외(undefined 포함)는 Google 기본
@@ -123,8 +127,12 @@ export default function PlayBroadcastPage() {
       }
       setSpeed(ratePercentToSpeed(s.ttsRate));
       setTtsBreakSeconds(normalizeTtsLineBreakPauseSeconds(s.ttsBreakSeconds));
-    }
-  }, [id]);
+      }
+    };
+    sync();
+    window.addEventListener("mart-sessions-updated", sync as EventListener);
+    return () => window.removeEventListener("mart-sessions-updated", sync as EventListener);
+  }, [id, voiceTemplates.length]);
 
   const refreshHasAudio = useCallback(async () => {
     if (!id) return;
@@ -199,7 +207,7 @@ export default function PlayBroadcastPage() {
           ttsRate: rateStr,
           ttsBreakSeconds,
         };
-        saveSession(updatedSession, session.items, session.eventItems ?? []);
+        void saveSession(updatedSession, session.items, session.eventItems ?? []);
         setSession(updatedSession);
       } else {
         const preset = TTS_PRESETS.find((p) => p.id === presetId) ?? TTS_PRESETS[0];
@@ -248,7 +256,7 @@ export default function PlayBroadcastPage() {
           ttsPitch: isManual ? manualPitch : ("pitch" in preset ? preset.pitch : undefined),
           ttsBreakSeconds,
         };
-        saveSession(updatedSession, session.items, session.eventItems ?? []);
+        void saveSession(updatedSession, session.items, session.eventItems ?? []);
         setSession(updatedSession);
       }
       await refreshHasAudio();
@@ -316,7 +324,7 @@ export default function PlayBroadcastPage() {
       const s = getSession(id);
       if (s) {
         const now = new Date().toISOString();
-        saveSession({ ...s, lastPlayedAt: now, updatedAt: now }, s.items, s.eventItems ?? []);
+        void saveSession({ ...s, lastPlayedAt: now, updatedAt: now }, s.items, s.eventItems ?? []);
         setSession((prev) =>
           prev ? { ...prev, lastPlayedAt: now, updatedAt: now } : null
         );
@@ -377,7 +385,7 @@ export default function PlayBroadcastPage() {
   const saveRepeatSetting = useCallback(() => {
     if (!session) return;
     const updated = { ...session, repeatMinutes, updatedAt: new Date().toISOString() };
-    saveSession(updated, session.items, session.eventItems ?? []);
+    void saveSession(updated, session.items, session.eventItems ?? []);
     setSession(updated);
   }, [session, repeatMinutes]);
 

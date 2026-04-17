@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, refreshCurrentUser } from "@/lib/auth";
 import { fetchAdminSession, getCurrentAdmin } from "@/lib/adminAuth";
 import {
   adminPathAllowedForReferrer,
@@ -80,9 +80,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
 
     setAdminOk(null);
-    if (!getCurrentUser()) {
-      router.replace("/login");
-    }
+    void (async () => {
+      const user = await refreshCurrentUser();
+      if (!user) router.replace("/login");
+    })();
   }, [mounted, p, isPublic, isAdmin, isAdminLogin, router]);
 
   if (!mounted) {

@@ -1,3 +1,18 @@
+create table if not exists public.app_users (
+  id text primary key,
+  username text not null unique,
+  hashed_password text not null,
+  name text not null,
+  mart_name text not null,
+  mart_address_base text null,
+  mart_address_detail text null,
+  phone text not null,
+  referrer_id text null,
+  plan_id text not null default 'free',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.broadcast_sessions (
   owner_user_id text not null,
   session_id text not null,

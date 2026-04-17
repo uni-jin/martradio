@@ -12,6 +12,7 @@
 Supabase SQL Editor에서 `supabase/schema.sql` 파일 내용을 실행합니다.
 
 생성되는 테이블:
+- `app_users`
 - `broadcast_sessions`
 - `broadcast_items`
 
@@ -22,6 +23,7 @@ Supabase SQL Editor에서 `supabase/schema.sql` 파일 내용을 실행합니다
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+USER_SESSION_SECRET=your_random_32_plus_char_secret_for_user_cookie
 ```
 
 ## 4) 동작 방식

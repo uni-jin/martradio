@@ -7,6 +7,7 @@ import {
   getPlanLabel,
   getPricingCtaLabel,
   logout,
+  refreshCurrentUser,
   type PlanId,
 } from "@/lib/auth";
 import { fetchAdminSession, getCurrentAdmin, logoutAdmin } from "@/lib/adminAuth";
@@ -37,7 +38,7 @@ export default function ClientTopBar() {
         setPlanId(undefined);
         return;
       }
-      const user = getCurrentUser();
+      const user = await refreshCurrentUser();
       setUserEmail(user?.email ?? null);
       setPlanId(user?.planId);
       setAdminId(null);
@@ -233,7 +234,7 @@ export default function ClientTopBar() {
                 className="flex w-full px-3 py-2.5 text-left text-base text-red-700 hover:bg-red-50"
                 onClick={() => {
                   setUserMenuOpen(false);
-                  logout();
+                  void logout();
                   router.push("/login");
                 }}
               >

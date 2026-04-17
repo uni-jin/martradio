@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { getSession, saveSession } from "@/lib/store";
 import { extractYoutubeId } from "@/lib/utils";
 import type { Session, BroadcastItem, SessionWithItems } from "@/lib/types";
-import { getCurrentUser, getMaxCharsForUser } from "@/lib/auth";
+import { getCurrentUser, getMaxCharsForUser, refreshCurrentUser, type AuthUser } from "@/lib/auth";
 import { saveAudio, getAudioBlob, hasStoredAudio } from "@/lib/audioStorage";
 import {
   DEFAULT_TTS,
@@ -93,7 +93,10 @@ export default function EditBroadcastPage() {
   const cyclesCompletedRef = useRef(0);
   const activePlaybackGenRef = useRef(0);
 
-  const user = useMemo(() => getCurrentUser(), []);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  useEffect(() => {
+    void refreshCurrentUser().then(setUser);
+  }, []);
   const [voiceListTick, setVoiceListTick] = useState(0);
   useEffect(() => {
     const onV = () => setVoiceListTick((t) => t + 1);
@@ -214,8 +217,8 @@ export default function EditBroadcastPage() {
 
   useEffect(() => {
     if (!sessionId) return;
-    const s = getSession(sessionId) as SessionWithItems | null;
-    if (s) {
+    const applySession = (s: SessionWithItems | null) => {
+      if (s) {
       setSessionBase(s);
       setTitle(s.title ?? "");
       setPromoRawText(s.promoRawText ?? "");
@@ -291,13 +294,18 @@ export default function EditBroadcastPage() {
         ttsSpeed: loadedSpeed,
         ttsBreakSeconds: loadedBreak,
       });
-    } else {
-      committedPlaybackRef.current = null;
-      setMusicSectionOpen(false);
-    }
-    setLoaded(true);
-    void refreshHasAudio();
-  }, [sessionId, refreshHasAudio]);
+      } else {
+        committedPlaybackRef.current = null;
+        setMusicSectionOpen(false);
+      }
+      setLoaded(true);
+      void refreshHasAudio();
+    };
+    applySession(getSession(sessionId) as SessionWithItems | null);
+    const onUpdate = () => applySession(getSession(sessionId) as SessionWithItems | null);
+    window.addEventListener("mart-sessions-updated", onUpdate as EventListener);
+    return () => window.removeEventListener("mart-sessions-updated", onUpdate as EventListener);
+  }, [sessionId, refreshHasAudio, user?.planId]);
 
   useEffect(() => {
     return () => {
@@ -401,7 +409,7 @@ export default function EditBroadcastPage() {
         updatedAt: now,
       };
 
-      saveSession(session, itemsRef.current, eventItemsRef.current);
+      await saveSession(session, itemsRef.current, eventItemsRef.current);
       setSessionBase(session);
       await refreshHasAudio();
       committedPlaybackRef.current = buildBroadcastPlaybackCommitSnapshot({
@@ -532,7 +540,7 @@ export default function EditBroadcastPage() {
         setSessionBase((b) => {
           if (!b) return b;
           const updated: Session = { ...b, lastPlayedAt: now, updatedAt: now };
-          saveSession(updated, itemsRef.current, eventItemsRef.current);
+          void saveSession(updated, itemsRef.current, eventItemsRef.current);
           return updated;
         });
       } catch (e) {

@@ -8,6 +8,7 @@ import {
   getPlanLabel,
   getStoredUserForCurrentSession,
   PlanId,
+  refreshCurrentUser,
   updateCurrentUserPlan,
 } from "@/lib/auth";
 import { computePaidPlanUpgradeChargeKrw } from "@/lib/subscriptionUpgrade";
@@ -118,7 +119,7 @@ export default function PricingPage() {
   const handledCheckoutRef = useRef(false);
 
   const refreshServerSubscription = useCallback(async () => {
-    const user = getCurrentUser();
+    const user = await refreshCurrentUser();
     if (!user?.id) {
       setServerSubscription(null);
       setHasBillingMethod(false);
@@ -174,10 +175,12 @@ export default function PricingPage() {
   }, [refreshServerSubscription]);
 
   useEffect(() => {
-    const user = getCurrentUser();
-    setUserEmail(user?.email ?? null);
-    setCurrentPlan(user?.planId);
-    void refreshServerSubscription();
+    void (async () => {
+      const user = await refreshCurrentUser();
+      setUserEmail(user?.email ?? null);
+      setCurrentPlan(user?.planId);
+      await refreshServerSubscription();
+    })();
   }, [refreshServerSubscription]);
 
   useEffect(() => {
@@ -238,9 +241,9 @@ export default function PricingPage() {
 
       const runBilling = async () => {
         try {
-          const user = getCurrentUser();
+          const user = await refreshCurrentUser();
           if (!user?.id) throw new Error("로그인 정보를 찾을 수 없습니다.");
-          const profilePlanId = getCurrentUser()?.planId ?? "free";
+          const profilePlanId = (await refreshCurrentUser())?.planId ?? "free";
           const activateRes = await fetch("/api/subscription/billing/activate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -254,7 +257,7 @@ export default function PricingPage() {
                 : "정기결제 시작에 실패했습니다."
             );
           }
-          const before = getCurrentUser();
+          const before = await refreshCurrentUser();
           if (activateData.kind === "scheduled_downgrade") {
             await refreshServerSubscription();
             setPricingFlow({
@@ -264,9 +267,9 @@ export default function PricingPage() {
               afterDismiss: () => router.push("/subscription"),
             });
           } else {
-            const updated = updateCurrentUserPlan(planId);
+            const updated = await updateCurrentUserPlan(planId);
             if (before) {
-              const stored = getStoredUserForCurrentSession();
+              const stored = await getStoredUserForCurrentSession();
               const amt =
                 typeof activateData.amount === "number" && Number.isFinite(activateData.amount)
                   ? activateData.amount
@@ -334,7 +337,7 @@ export default function PricingPage() {
 
     const run = async () => {
       try {
-        const user = getCurrentUser();
+        const user = await refreshCurrentUser();
         if (!user?.id) {
           throw new Error("로그인 정보를 찾을 수 없습니다.");
         }
@@ -350,10 +353,10 @@ export default function PricingPage() {
           );
         }
 
-        const before = getCurrentUser();
-        const updated = updateCurrentUserPlan(planId);
+        const before = await refreshCurrentUser();
+        const updated = await updateCurrentUserPlan(planId);
         if (before) {
-          const stored = getStoredUserForCurrentSession();
+          const stored = await getStoredUserForCurrentSession();
           appendUserPayment({
             userId: before.id,
             username: before.email,
@@ -550,7 +553,7 @@ export default function PricingPage() {
       if (useStored) {
         setIsProcessingCheckout(true);
         try {
-          const profilePlanId = getCurrentUser()?.planId ?? "free";
+          const profilePlanId = (await refreshCurrentUser())?.planId ?? "free";
           const activateRes = await fetch("/api/subscription/billing/activate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -580,10 +583,10 @@ export default function PricingPage() {
               afterDismiss: () => router.push("/subscription"),
             });
           } else {
-            const before = getCurrentUser();
-            const updated = updateCurrentUserPlan(chosenPlan);
+            const before = await refreshCurrentUser();
+            const updated = await updateCurrentUserPlan(chosenPlan);
             if (before && typeof activateData.amount === "number" && activateData.amount > 0) {
-              const stored = getStoredUserForCurrentSession();
+              const stored = await getStoredUserForCurrentSession();
               appendUserPayment({
                 userId: before.id,
                 username: before.email,

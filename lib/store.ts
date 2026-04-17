@@ -1,74 +1,38 @@
 "use client";
 
 import type { Session, SessionWithItems, BroadcastItem } from "./types";
-import { getCurrentUser } from "./auth";
+let sessionsCache: SessionWithItems[] = [];
+let loading = false;
+let loaded = false;
 
-const STORAGE_KEY = "mart-radio-sessions";
-
-function loadSessions(): SessionWithItems[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-}
-
-function saveSessions(sessions: SessionWithItems[]) {
+function notifySessionsUpdated() {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  window.dispatchEvent(new CustomEvent("mart-sessions-updated"));
 }
 
-function shouldSyncToSupabase(): boolean {
-  return typeof window !== "undefined" && Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
-}
-
-async function syncSessionToSupabase(session: SessionWithItems): Promise<void> {
-  if (!shouldSyncToSupabase()) return;
-  const user = getCurrentUser();
-  if (!user?.id) return;
+async function refreshFromServer() {
+  if (loading) return;
+  loading = true;
   try {
-    await fetch("/api/supabase/sessions/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: user.id,
-        session,
-      }),
-      keepalive: true,
-    });
-  } catch {
-    // 동기화 실패 시에도 로컬 저장은 유지한다.
-  }
-}
-
-async function deleteSessionFromSupabase(sessionId: string): Promise<void> {
-  if (!shouldSyncToSupabase()) return;
-  const user = getCurrentUser();
-  if (!user?.id) return;
-  try {
-    await fetch("/api/supabase/sessions/sync", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: user.id,
-        sessionId,
-      }),
-      keepalive: true,
-    });
-  } catch {
-    // 동기화 실패 시에도 로컬 삭제는 유지한다.
+    const res = await fetch("/api/user/sessions", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json().catch(() => ({}))) as { sessions?: SessionWithItems[] };
+    sessionsCache = data.sessions ?? [];
+    loaded = true;
+    notifySessionsUpdated();
+  } finally {
+    loading = false;
   }
 }
 
 export function getAllSessions(): SessionWithItems[] {
-  return loadSessions();
+  if (!loaded) void refreshFromServer();
+  return sessionsCache;
 }
 
 export function getSession(id: string): SessionWithItems | null {
-  return loadSessions().find((s) => s.id === id) ?? null;
+  if (!loaded) void refreshFromServer();
+  return sessionsCache.find((s) => s.id === id) ?? null;
 }
 
 export function saveSession(
@@ -76,18 +40,25 @@ export function saveSession(
   items: BroadcastItem[],
   eventItems: BroadcastItem[] = []
 ) {
-  const list = loadSessions();
-  const idx = list.findIndex((s) => s.id === session.id);
   const withItems: SessionWithItems = { ...session, items, eventItems };
-  if (idx >= 0) list[idx] = withItems;
-  else list.unshift(withItems);
-  list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  saveSessions(list);
-  void syncSessionToSupabase(withItems);
+  const idx = sessionsCache.findIndex((s) => s.id === session.id);
+  if (idx >= 0) sessionsCache[idx] = withItems;
+  else sessionsCache.unshift(withItems);
+  sessionsCache.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  notifySessionsUpdated();
+  void fetch("/api/user/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session: withItems, items, eventItems }),
+  });
 }
 
 export function deleteSession(id: string) {
-  const list = loadSessions().filter((s) => s.id !== id);
-  saveSessions(list);
-  void deleteSessionFromSupabase(id);
+  sessionsCache = sessionsCache.filter((s) => s.id !== id);
+  notifySessionsUpdated();
+  void fetch("/api/user/sessions", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId: id }),
+  });
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getCurrentUser, getVisibleSessionCountForUser } from "@/lib/auth";
+import { getCurrentUser, getVisibleSessionCountForUser, refreshCurrentUser } from "@/lib/auth";
 import { getAllSessions } from "@/lib/store";
 import { formatRelativeTime } from "@/lib/utils";
 import type { SessionWithItems } from "@/lib/types";
@@ -23,9 +23,15 @@ export default function HomePage() {
       setIsFreePlanUser(isFree);
       setSessionVisibleLimit(getVisibleSessionCountForUser(user));
     };
-    sync();
+    void refreshCurrentUser().finally(sync);
     window.addEventListener("mart-plan-updated", sync as EventListener);
-    return () => window.removeEventListener("mart-plan-updated", sync as EventListener);
+    window.addEventListener("mart-sessions-updated", sync as EventListener);
+    window.addEventListener("mart-auth-updated", sync as EventListener);
+    return () => {
+      window.removeEventListener("mart-plan-updated", sync as EventListener);
+      window.removeEventListener("mart-sessions-updated", sync as EventListener);
+      window.removeEventListener("mart-auth-updated", sync as EventListener);
+    };
   }, []);
 
   const visibleSessions =

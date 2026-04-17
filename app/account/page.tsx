@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import AddressSearchFields from "@/app/_components/AddressSearchFields";
 import {
   fetchReferrerOptions,
-  getCurrentUser,
   getStoredUserForCurrentSession,
+  refreshCurrentUser,
   updateCurrentUserProfile,
   type ReferrerOption,
 } from "@/lib/auth";
@@ -47,25 +47,27 @@ export default function AccountPage() {
   }, []);
 
   useEffect(() => {
-    const cur = getCurrentUser();
-    if (!cur) {
-      router.replace("/login");
-      return;
-    }
-    const su = getStoredUserForCurrentSession();
-    if (!su) {
-      router.replace("/");
-      return;
-    }
-    setUsername(su.username);
-    setName(su.name);
-    setPhone(su.phone);
-    setSavedPhone(su.phone);
-    setMartName(su.martName);
-    setMartAddressBase(su.martAddressBase?.trim() || su.martAddress?.trim() || "");
-    setMartAddressDetail(su.martAddressDetail?.trim() || "");
-    setReferrerId(su.referrerId ?? "");
-    setReady(true);
+    void (async () => {
+      const cur = await refreshCurrentUser();
+      if (!cur) {
+        router.replace("/login");
+        return;
+      }
+      const su = await getStoredUserForCurrentSession();
+      if (!su) {
+        router.replace("/");
+        return;
+      }
+      setUsername(su.username);
+      setName(su.name);
+      setPhone(su.phone);
+      setSavedPhone(su.phone);
+      setMartName(su.martName);
+      setMartAddressBase(su.martAddressBase?.trim() || su.martAddress?.trim() || "");
+      setMartAddressDetail(su.martAddressDetail?.trim() || "");
+      setReferrerId(su.referrerId ?? "");
+      setReady(true);
+    })();
   }, [router]);
 
   useEffect(() => {
@@ -142,7 +144,7 @@ export default function AccountPage() {
 
     setLoading(true);
     try {
-      updateCurrentUserProfile({
+      await updateCurrentUserProfile({
         name,
         martName,
         martAddressBase: martAddressBase.trim() || undefined,

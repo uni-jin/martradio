@@ -13,7 +13,10 @@ export default function BroadcastDetailPage() {
   const [session, setSession] = useState<SessionWithItems | null>(null);
 
   useEffect(() => {
-    setSession(getSession(id) ?? null);
+    const sync = () => setSession(getSession(id) ?? null);
+    sync();
+    window.addEventListener("mart-sessions-updated", sync as EventListener);
+    return () => window.removeEventListener("mart-sessions-updated", sync as EventListener);
   }, [id]);
 
   if (!id) {

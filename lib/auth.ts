@@ -11,16 +11,13 @@ export type AuthUser = {
 import {
   FREE_PLAN_BROADCAST_MAX_CHARS,
   getAdminProducts,
-  syncPaymentReferrerForUser,
 } from "@/lib/adminData";
-
-const AUTH_STORAGE_KEY = "mart-radio-auth-user";
-const USERS_STORAGE_KEY = "mart-radio-users";
+let currentUserCache: AuthUser | null = null;
+let authHydrating = false;
 
 export type StoredUser = {
   id: string;
   username: string;
-  password: string;
   name: string;
   martName: string;
   /** 주소검색으로 입력한 도로명·지번 주소 */
@@ -34,63 +31,47 @@ export type StoredUser = {
   planId?: PlanId;
 };
 
-function combineMartAddress(
-  base?: string | null,
-  detail?: string | null,
-  legacy?: string | null
-): string | null {
-  const merged = [base?.trim(), detail?.trim()].filter(Boolean).join(" ").trim();
-  if (merged) return merged;
-  const leg = legacy?.trim();
-  return leg || null;
-}
-
 export type ReferrerOption = {
   id: string;
   name: string;
 };
 
 export function getCurrentUser(): AuthUser | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as AuthUser;
-    return {
-      ...parsed,
-      isUnlimited: false,
-      planId: parsed.planId ?? "free",
-    };
-  } catch {
-    return null;
+  if (typeof window !== "undefined" && !authHydrating && currentUserCache == null) {
+    authHydrating = true;
+    void refreshCurrentUser().finally(() => {
+      authHydrating = false;
+    });
   }
+  return currentUserCache;
+}
+
+async function readAuthMe(): Promise<(AuthUser & Partial<StoredUser>) | null> {
+  const res = await fetch("/api/public/auth/me", { cache: "no-store" });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => ({}))) as { user?: (AuthUser & Partial<StoredUser>) | null };
+  return data.user ?? null;
+}
+
+export async function refreshCurrentUser(): Promise<AuthUser | null> {
+  const me = await readAuthMe();
+  currentUserCache = me
+    ? {
+        id: me.id,
+        email: me.email,
+        name: me.name,
+        isUnlimited: false,
+        planId: (me.planId ?? "free") as PlanId,
+      }
+    : null;
+  return currentUserCache;
 }
 
 export function saveUser(user: AuthUser | null) {
-  if (typeof window === "undefined") return;
-  if (!user) {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    return;
+  currentUserCache = user;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("mart-auth-updated"));
   }
-  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
-}
-
-function getAllStoredUsers(): StoredUser[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(USERS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed as StoredUser[];
-  } catch {
-    return [];
-  }
-}
-
-function saveAllStoredUsers(users: StoredUser[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
 }
 
 export type RegisterPayload = {
@@ -129,91 +110,45 @@ export async function fetchReferrerOptions(): Promise<ReferrerOption[]> {
 }
 
 export function updateUserReferrerByAdmin(userId: string, referrerId: string | null): void {
-  if (typeof window === "undefined") {
-    throw new Error("브라우저 환경에서만 사용할 수 있습니다.");
-  }
-  const users = getAllStoredUsers();
-  const idx = users.findIndex((u) => u.id === userId);
-  if (idx < 0) {
-    throw new Error("회원을 찾을 수 없습니다.");
-  }
-  const nextId = referrerId?.trim() || null;
-  const next = [...users];
-  next[idx] = {
-    ...next[idx],
-    referrerId: nextId,
-  };
-  saveAllStoredUsers(next);
-  const row = next[idx];
-  syncPaymentReferrerForUser({
-    userId: row.id,
-    username: row.username.trim(),
-    referrerId: nextId,
-  });
+  void userId;
+  void referrerId;
+  throw new Error("현재 추천인 수정은 서버 API 경로에서만 지원합니다.");
 }
 
 export async function register(payload: RegisterPayload): Promise<AuthUser> {
-  if (typeof window === "undefined") {
-    throw new Error("브라우저 환경에서만 회원가입을 사용할 수 있습니다.");
+  const res = await fetch("/api/public/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as { user?: AuthUser; error?: string };
+  if (!res.ok || !data.user) {
+    throw new Error(data.error || "회원가입에 실패했습니다.");
   }
-  const username = payload.username.trim();
-  const users = getAllStoredUsers();
-  if (users.some((u) => u.username === username)) {
-    throw new Error("이미 가입된 아이디입니다.");
-  }
-  const base = payload.martAddressBase?.trim() || null;
-  const detail = payload.martAddressDetail?.trim() || null;
-  const stored: StoredUser = {
-    id: `user_${Date.now()}`,
-    username,
-    password: payload.password,
-    name: payload.name.trim(),
-    martName: payload.martName.trim(),
-    martAddressBase: base,
-    martAddressDetail: detail,
-    martAddress: combineMartAddress(base, detail),
-    phone: payload.phone.trim(),
-    referrerId: payload.referrerId?.trim() || null,
-    planId: "free",
-  };
-  const next = [...users, stored];
-  saveAllStoredUsers(next);
-
-  const user: AuthUser = {
-    id: stored.id,
-    email: stored.username,
-    name: stored.name,
-    isUnlimited: false,
-    planId: "free",
-  };
-  saveUser(user);
-  return user;
+  saveUser(data.user);
+  return data.user;
 }
 
 export async function login(username: string, password: string): Promise<AuthUser> {
-  // 로컬 스토리지에 저장된 회원 정보에서 조회
-  if (typeof window !== "undefined") {
-    const users = getAllStoredUsers();
-    const found = users.find((u) => u.username === username);
-    if (!found || found.password !== password) {
-      throw new Error("아이디 또는 비밀번호가 올바르지 않습니다.");
-    }
-    const user: AuthUser = {
-      id: found.id,
-      email: found.username,
-      name: found.name,
-      isUnlimited: false,
-      planId: found.planId ?? "free",
-    };
-    saveUser(user);
-    return user;
+  const res = await fetch("/api/public/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { user?: AuthUser; error?: string };
+  if (!res.ok || !data.user) {
+    throw new Error(data.error || "아이디 또는 비밀번호가 올바르지 않습니다.");
   }
-
-  throw new Error("아이디 또는 비밀번호가 올바르지 않습니다.");
+  saveUser(data.user);
+  return data.user;
 }
 
-export function logout() {
-  saveUser(null);
+export async function logout() {
+  try {
+    await fetch("/api/public/auth/logout", { method: "POST" });
+  } finally {
+    saveUser(null);
+  }
 }
 
 export function getPlanLabel(planId: PlanId | undefined, isUnlimited: boolean | undefined): string {
@@ -315,11 +250,36 @@ export function getVisibleSessionCountForUser(user: AuthUser | null): number | n
 }
 
 /** 로그인한 회원의 저장소 레코드 */
-export function getStoredUserForCurrentSession(): StoredUser | null {
-  const cur = getCurrentUser();
-  if (!cur) return null;
-  const users = getAllStoredUsers();
-  return users.find((u) => u.id === cur.id) ?? null;
+export async function getStoredUserForCurrentSession(): Promise<StoredUser | null> {
+  const res = await fetch("/api/public/auth/profile", { cache: "no-store" });
+  if (!res.ok) return null;
+  const data = (await res.json().catch(() => ({}))) as {
+    profile?: {
+      id: string;
+      username: string;
+      name: string;
+      martName: string;
+      martAddressBase?: string | null;
+      martAddressDetail?: string | null;
+      phone: string;
+      referrerId?: string | null;
+      planId?: PlanId;
+    };
+  };
+  if (!data.profile) return null;
+  return {
+    id: data.profile.id,
+    username: data.profile.username,
+    name: data.profile.name,
+    martName: data.profile.martName,
+    martAddressBase: data.profile.martAddressBase ?? null,
+    martAddressDetail: data.profile.martAddressDetail ?? null,
+    martAddress:
+      [data.profile.martAddressBase?.trim(), data.profile.martAddressDetail?.trim()].filter(Boolean).join(" ").trim() || null,
+    phone: data.profile.phone,
+    referrerId: data.profile.referrerId ?? null,
+    planId: data.profile.planId ?? "free",
+  };
 }
 
 export type ProfileUpdatePayload = {
@@ -332,79 +292,32 @@ export type ProfileUpdatePayload = {
   newPasswordConfirm?: string;
 };
 
-export function updateCurrentUserProfile(payload: ProfileUpdatePayload): AuthUser {
-  if (typeof window === "undefined") {
-    throw new Error("브라우저에서만 수정할 수 있습니다.");
+export async function updateCurrentUserProfile(payload: ProfileUpdatePayload): Promise<AuthUser> {
+  const res = await fetch("/api/public/auth/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as { user?: AuthUser; error?: string };
+  if (!res.ok || !data.user) {
+    throw new Error(data.error || "저장에 실패했습니다.");
   }
-  const current = getCurrentUser();
-  if (!current) {
-    throw new Error("로그인이 필요합니다.");
-  }
-  const users = getAllStoredUsers();
-  const idx = users.findIndex((u) => u.id === current.id);
-  if (idx < 0) {
-    throw new Error("회원 정보를 찾을 수 없습니다.");
-  }
-  const prev = users[idx];
-  let password = prev.password;
-  const np = payload.newPassword?.trim();
-  if (np) {
-    const confirm = payload.newPasswordConfirm?.trim() ?? "";
-    if (np.length < 6) {
-      throw new Error("새 비밀번호는 6자 이상이어야 합니다.");
-    }
-    if (np !== confirm) {
-      throw new Error("새 비밀번호와 확인이 일치하지 않습니다.");
-    }
-    password = np;
-  }
-
-  const base = payload.martAddressBase?.trim() || null;
-  const detail = payload.martAddressDetail?.trim() || null;
-  const mergedAddr = [base, detail].filter(Boolean).join(" ").trim();
-  const martAddressResolved = mergedAddr || null;
-
-  const updated: StoredUser = {
-    ...prev,
-    name: payload.name.trim(),
-    martName: payload.martName.trim(),
-    martAddressBase: base,
-    martAddressDetail: detail,
-    martAddress: martAddressResolved,
-    phone: payload.phone.trim(),
-    password,
-  };
-
-  const next = [...users];
-  next[idx] = updated;
-  saveAllStoredUsers(next);
-
-  const nextAuth: AuthUser = {
-    ...current,
-    name: updated.name,
-  };
-  saveUser(nextAuth);
-  return nextAuth;
+  saveUser(data.user);
+  return data.user;
 }
 
-export function updateCurrentUserPlan(planId: PlanId): AuthUser | null {
-  if (typeof window === "undefined") return null;
-  const current = getCurrentUser();
-  if (!current) return null;
-  const users = getAllStoredUsers();
-  const updatedUsers = users.map((u) =>
-    u.id === current.id
-      ? {
-          ...u,
-          planId,
-        }
-      : u
-  );
-  saveAllStoredUsers(updatedUsers);
-  const nextUser: AuthUser = {
-    ...current,
-    planId,
-  };
+export async function updateCurrentUserPlan(planId: PlanId): Promise<AuthUser | null> {
+  const res = await fetch("/api/public/auth/plan", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ planId }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { user?: AuthUser; error?: string };
+  if (!res.ok || !data.user) {
+    if (res.status === 401) return null;
+    throw new Error(data.error || "플랜 변경에 실패했습니다.");
+  }
+  const nextUser: AuthUser = data.user;
   saveUser(nextUser);
   try {
     window.dispatchEvent(new CustomEvent("mart-plan-updated"));
