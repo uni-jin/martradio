@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 import { getValidatedUserSession } from "@/lib/userSession.server";
+import { resolveEffectivePlanIdForUser } from "@/lib/userPlan.server";
 
 export async function GET() {
   const validated = await getValidatedUserSession();
@@ -18,13 +19,14 @@ export async function GET() {
     .maybeSingle();
   if (found.error) return NextResponse.json({ error: found.error.message }, { status: 500 });
   if (!found.data) return NextResponse.json({ user: null });
+  const planId = await resolveEffectivePlanIdForUser(found.data.id, found.data.plan_id);
   return NextResponse.json({
     user: {
       id: found.data.id,
       email: found.data.username,
       name: found.data.name,
       isUnlimited: false,
-      planId: found.data.plan_id ?? "free",
+      planId,
       martName: found.data.mart_name,
       martAddressBase: found.data.mart_address_base,
       martAddressDetail: found.data.mart_address_detail,

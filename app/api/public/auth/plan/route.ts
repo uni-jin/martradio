@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 import { getValidatedUserSession } from "@/lib/userSession.server";
+import { resolveEffectivePlanIdForUser } from "@/lib/userPlan.server";
 
 export async function PATCH(req: NextRequest) {
   const validated = await getValidatedUserSession();
@@ -23,6 +24,7 @@ export async function PATCH(req: NextRequest) {
     .maybeSingle();
   if (updated.error) return NextResponse.json({ error: updated.error.message }, { status: 500 });
   if (!updated.data) return NextResponse.json({ error: "회원 정보를 찾을 수 없습니다." }, { status: 404 });
+  const effectivePlanId = await resolveEffectivePlanIdForUser(updated.data.id, updated.data.plan_id);
   return NextResponse.json({
     ok: true,
     user: {
@@ -30,7 +32,7 @@ export async function PATCH(req: NextRequest) {
       email: updated.data.username,
       name: updated.data.name,
       isUnlimited: false,
-      planId: updated.data.plan_id ?? "free",
+      planId: effectivePlanId,
     },
   });
 }

@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 import { setSessionCookie } from "@/lib/userSession.server";
+import { resolveEffectivePlanIdForUser } from "@/lib/userPlan.server";
 
 function verifyPassword(password: string, stored: string): boolean {
   const [salt, digest] = stored.split(":");
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "아이디 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
     }
     await setSessionCookie(found.data.id);
+    const planId = await resolveEffectivePlanIdForUser(found.data.id, found.data.plan_id);
     return NextResponse.json({
       ok: true,
       user: {
@@ -37,7 +39,7 @@ export async function POST(req: NextRequest) {
         email: found.data.username,
         name: found.data.name,
         isUnlimited: false,
-        planId: found.data.plan_id ?? "free",
+        planId,
       },
     });
   } catch (e) {
