@@ -8,6 +8,7 @@ import { getPlanDisplayLabel } from "@/lib/auth";
 import { buildPaymentOrderNoMap } from "@/lib/adminPaymentOrderNo";
 import { billingPeriodsForPaymentHistoryOldestFirst } from "@/lib/subscriptionPeriod";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
+import { fetchAdminJsonCached } from "@/lib/adminClientCache";
 
 function formatYmdKorean(ymd: string | undefined): string {
   if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "-";
@@ -47,21 +48,20 @@ export default function AdminPaymentsPage() {
   useEffect(() => {
     let canceled = false;
     void (async () => {
-      const res = await fetch("/api/admin/referrers", { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
-      if (canceled) return;
-      setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
-      const userRes = await fetch("/api/admin/users", { credentials: "include" });
-      const userData = (await userRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
-      if (!canceled) setUsers(Array.isArray(userData.users) ? userData.users : []);
-      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
-      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
-      if (!canceled) setPayments(Array.isArray(payData.payments) ? payData.payments : []);
-      const prodRes = await fetch("/api/admin/data/products", { credentials: "include" });
-      const prodData = (await prodRes.json().catch(() => ({}))) as {
-        products?: { id: string; name: string; priceMonthly: number; isActive?: boolean }[];
-      };
-      if (!canceled) setProducts(Array.isArray(prodData.products) ? prodData.products : []);
+      const [refData, userData, payData, prodData] = await Promise.all([
+        fetchAdminJsonCached<{ referrers?: AdminReferrer[] }>("/api/admin/referrers"),
+        fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
+        fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
+        fetchAdminJsonCached<{
+          products?: { id: string; name: string; priceMonthly: number; isActive?: boolean }[];
+        }>("/api/admin/data/products"),
+      ]);
+      if (!canceled) {
+        setReferrers(Array.isArray(refData.referrers) ? refData.referrers : []);
+        setUsers(Array.isArray(userData.users) ? userData.users : []);
+        setPayments(Array.isArray(payData.payments) ? payData.payments : []);
+        setProducts(Array.isArray(prodData.products) ? prodData.products : []);
+      }
     })();
     return () => {
       canceled = true;

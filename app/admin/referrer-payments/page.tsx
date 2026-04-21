@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import type { AdminPayment, AdminReferrer } from "@/lib/adminData";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
+import { fetchAdminJsonCached } from "@/lib/adminClientCache";
 
 function inferJoinedAt(u: Record<string, unknown>): string | null {
   if (typeof u.createdAt === "string" && u.createdAt.trim()) return u.createdAt;
@@ -61,16 +62,15 @@ export default function AdminReferrerPaymentsPage() {
   useEffect(() => {
     let canceled = false;
     void (async () => {
-      const res = await fetch("/api/admin/referrers", { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
+      const [refData, usersData, payData] = await Promise.all([
+        fetchAdminJsonCached<{ referrers?: AdminReferrer[] }>("/api/admin/referrers"),
+        fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
+        fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
+      ]);
       if (canceled) return;
-      setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
-      const usersRes = await fetch("/api/admin/users", { credentials: "include" });
-      const usersData = (await usersRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
-      if (!canceled) setUsers(Array.isArray(usersData.users) ? usersData.users : []);
-      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
-      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
-      if (!canceled) setPayments(Array.isArray(payData.payments) ? payData.payments : []);
+      setReferrers(Array.isArray(refData.referrers) ? refData.referrers : []);
+      setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+      setPayments(Array.isArray(payData.payments) ? payData.payments : []);
     })();
     return () => {
       canceled = true;

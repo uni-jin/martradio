@@ -8,6 +8,7 @@ import { GOOGLE_TTS_EFFECTS_PROFILE_OPTIONS } from "@/lib/googleTtsEffects";
 import { GEMINI_31_FLASH_TTS_VOICE_NAMES } from "@/lib/geminiTtsVoiceNames";
 import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
+import { fetchAdminJsonCached, invalidateAdminClientCache } from "@/lib/adminClientCache";
 
 /** 미리듣기에 사용하는 고정 문구 */
 const PREVIEW_TEXT = "안내 방송 테스트입니다.";
@@ -68,8 +69,9 @@ export default function AdminVoicesPage() {
   const previewBlobUrlRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const res = await fetch("/api/admin/data/voices", { credentials: "include" });
-    const data = (await res.json().catch(() => ({}))) as { voices?: VoiceTemplate[] };
+    const data = await fetchAdminJsonCached<{ voices?: VoiceTemplate[] }>("/api/admin/data/voices", {
+      force: true,
+    });
     setList(Array.isArray(data.voices) ? data.voices : []);
   }, []);
 
@@ -161,6 +163,7 @@ export default function AdminVoicesPage() {
 
   const persist = (next: VoiceTemplate[]) => {
     setList(next);
+    invalidateAdminClientCache("/api/admin/data/voices");
     void fetch("/api/admin/data/voices", {
       method: "PUT",
       credentials: "include",

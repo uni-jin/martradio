@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import type { AdminTemplate } from "@/lib/adminData";
+import { fetchAdminJsonCached, invalidateAdminClientCache } from "@/lib/adminClientCache";
 
 export default function AdminTemplatesPage() {
   const [templates, setTemplates] = useState<AdminTemplate[]>([]);
@@ -19,8 +20,10 @@ export default function AdminTemplatesPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/admin/data/templates", { credentials: "include" });
-        const data = (await res.json().catch(() => ({}))) as { templates?: AdminTemplate[] };
+        const data = await fetchAdminJsonCached<{ templates?: AdminTemplate[] }>(
+          "/api/admin/data/templates",
+          { force: true }
+        );
         if (cancelled) return;
         setTemplates(Array.isArray(data.templates) ? data.templates : []);
       } finally {
@@ -34,6 +37,7 @@ export default function AdminTemplatesPage() {
 
   const persist = (next: AdminTemplate[]) => {
     setTemplates(next);
+    invalidateAdminClientCache("/api/admin/data/templates");
     void fetch("/api/admin/data/templates", {
       method: "PUT",
       credentials: "include",

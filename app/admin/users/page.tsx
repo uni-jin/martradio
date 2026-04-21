@@ -14,6 +14,7 @@ import {
   nextBillingPlanIdFromSubscriptionServer,
   resolveSubscriptionPeriodDisplayIso,
 } from "@/lib/subscriptionUi";
+import { fetchAdminJsonCached } from "@/lib/adminClientCache";
 
 /** API 응답용 — 클라이언트에서 subscriptionServerStore 미참조 */
 type SubscriptionSnapshot = {
@@ -144,17 +145,16 @@ export default function AdminUsersPage() {
   useEffect(() => {
     let canceled = false;
     void (async () => {
-      const res = await fetch("/api/admin/referrers", { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
+      const [refData, usersData, payData] = await Promise.all([
+        fetchAdminJsonCached<{ referrers?: AdminReferrer[] }>("/api/admin/referrers"),
+        fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
+        fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
+      ]);
       if (!canceled) {
-        setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+        setReferrers(Array.isArray(refData.referrers) ? refData.referrers : []);
+        setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+        setPayments(Array.isArray(payData.payments) ? payData.payments : []);
       }
-      const usersRes = await fetch("/api/admin/users", { credentials: "include" });
-      const usersData = (await usersRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
-      if (!canceled) setUsers(Array.isArray(usersData.users) ? usersData.users : []);
-      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
-      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
-      if (!canceled) setPayments(Array.isArray(payData.payments) ? payData.payments : []);
     })();
     return () => {
       canceled = true;

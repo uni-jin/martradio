@@ -69,6 +69,22 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         setAdminOk(null);
         return;
       }
+      const cachedAdmin = getCurrentAdmin();
+      if (cachedAdmin) {
+        if (cachedAdmin.mustChangePassword && p !== "/admin/settings/password") {
+          router.replace("/admin/settings/password");
+          return;
+        }
+        if (
+          cachedAdmin.role === "referrer_admin" &&
+          !adminPathAllowedForReferrer(p, cachedAdmin.allowedHrefs)
+        ) {
+          router.replace(pickReferrerAdminFallbackPath(cachedAdmin.allowedHrefs));
+          return;
+        }
+        setAdminOk(true);
+        return;
+      }
       void (async () => {
         const me = await fetchAdminSession();
         if (!me) {
@@ -91,7 +107,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     setAdminOk(null);
     void (async () => {
-      const user = await refreshCurrentUser();
+      const user = await refreshCurrentUser({ force: true });
       if (!user) {
         const code = getLastSessionErrorCode();
         if (code) router.replace(`/login?reason=${encodeURIComponent(code)}`);

@@ -130,8 +130,8 @@ export default function PricingPage() {
   const [pricingFlowBusy, setPricingFlowBusy] = useState(false);
   const handledCheckoutRef = useRef(false);
 
-  const refreshServerSubscription = useCallback(async () => {
-    const user = await refreshCurrentUser();
+  const refreshServerSubscription = useCallback(async (userArg?: { id: string } | null) => {
+    const user = userArg ?? getCurrentUser() ?? (await refreshCurrentUser());
     if (!user?.id) {
       setServerSubscription(null);
       setHasBillingMethod(false);
@@ -191,7 +191,7 @@ export default function PricingPage() {
       const user = await refreshCurrentUser();
       setUserEmail(user?.email ?? null);
       setCurrentPlan(user?.planId);
-      await refreshServerSubscription();
+      await refreshServerSubscription(user);
     })();
   }, [refreshServerSubscription]);
 
@@ -255,7 +255,7 @@ export default function PricingPage() {
         try {
           const user = await refreshCurrentUser();
           if (!user?.id) throw new Error("로그인 정보를 찾을 수 없습니다.");
-          const profilePlanId = (await refreshCurrentUser())?.planId ?? "free";
+          const profilePlanId = user.planId ?? "free";
           const activateRes = await fetchJsonWithTimeout(
             "/api/subscription/billing/activate",
             {
@@ -274,7 +274,7 @@ export default function PricingPage() {
             );
           }
           if (activateData.kind === "scheduled_downgrade") {
-            await refreshServerSubscription();
+            await refreshServerSubscription(user);
             setPricingFlow({
               variant: "notify",
               title: "완료",
@@ -284,7 +284,7 @@ export default function PricingPage() {
           } else {
             const updated = await updateCurrentUserPlan(planId);
             setCurrentPlan(updated?.planId);
-            await refreshServerSubscription();
+            await refreshServerSubscription(updated ?? user);
             setPricingFlow({
               variant: "notify",
               title: "완료",
@@ -359,7 +359,7 @@ export default function PricingPage() {
 
         const updated = await updateCurrentUserPlan(planId);
         setCurrentPlan(updated?.planId);
-        await refreshServerSubscription();
+        await refreshServerSubscription(updated ?? user);
         setPricingFlow({
           variant: "notify",
           title: "완료",
@@ -542,7 +542,7 @@ export default function PricingPage() {
       if (useStored) {
         setIsProcessingCheckout(true);
         try {
-          const profilePlanId = (await refreshCurrentUser())?.planId ?? "free";
+          const profilePlanId = getCurrentUser()?.planId ?? "free";
           const activateRes = await fetch("/api/subscription/billing/activate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -563,7 +563,7 @@ export default function PricingPage() {
             );
           }
           setPendingPlan(null);
-          await refreshServerSubscription();
+          await refreshServerSubscription(user);
           if (activateData.kind === "scheduled_downgrade") {
             setPricingFlow({
               variant: "notify",

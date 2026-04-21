@@ -9,6 +9,9 @@ export type AdminSession = {
 };
 
 const ADMIN_CLIENT_CACHE_KEY = "mart-radio-admin-session";
+const ADMIN_ME_CACHE_TTL_MS = 15000;
+let adminMeInFlight: Promise<AdminSession | null> | null = null;
+let adminMeFetchedAt = 0;
 
 function clearLegacyLocalStorage(): void {
   try {
@@ -64,6 +67,7 @@ export async function loginAdmin(username: string, password: string): Promise<Ad
   } catch {
     /* ignore */
   }
+  adminMeFetchedAt = Date.now();
   return session;
 }
 
@@ -81,18 +85,33 @@ export function getCurrentAdmin(): AdminSession | null {
 }
 
 export async function fetchAdminSession(): Promise<AdminSession | null> {
-  const res = await fetch("/api/admin/auth/me", { credentials: "include", cache: "no-store" });
-  if (!res.ok) return null;
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  const u = typeof data.username === "string" ? data.username : "";
-  if (!u) return null;
-  const session = parseMePayload(data);
-  try {
-    window.sessionStorage.setItem(ADMIN_CLIENT_CACHE_KEY, JSON.stringify(session));
-  } catch {
-    /* ignore */
+  const cached = getCurrentAdmin();
+  if (cached && Date.now() - adminMeFetchedAt < ADMIN_ME_CACHE_TTL_MS) {
+    return cached;
   }
-  return session;
+  if (adminMeInFlight) {
+    return adminMeInFlight;
+  }
+  adminMeInFlight = (async () => {
+    const res = await fetch("/api/admin/auth/me", { credentials: "include", cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const u = typeof data.username === "string" ? data.username : "";
+    if (!u) return null;
+    const session = parseMePayload(data);
+    try {
+      window.sessionStorage.setItem(ADMIN_CLIENT_CACHE_KEY, JSON.stringify(session));
+    } catch {
+      /* ignore */
+    }
+    adminMeFetchedAt = Date.now();
+    return session;
+  })();
+  try {
+    return await adminMeInFlight;
+  } finally {
+    adminMeInFlight = null;
+  }
 }
 
 export async function logoutAdmin(): Promise<void> {
@@ -107,4 +126,6 @@ export async function logoutAdmin(): Promise<void> {
   } catch {
     /* ignore */
   }
+  adminMeFetchedAt = 0;
+  adminMeInFlight = null;
 }

@@ -21,6 +21,13 @@ import {
 let currentUserCache: AuthUser | null = null;
 let authHydrating = false;
 let lastSessionErrorCode: UserSessionErrorCode | null = null;
+let currentUserFetchedAt = 0;
+let refreshUserInFlight: Promise<AuthUser | null> | null = null;
+let referrerOptionsCache: ReferrerOption[] | null = null;
+let referrerOptionsFetchedAt = 0;
+let referrerOptionsInFlight: Promise<ReferrerOption[]> | null = null;
+const USER_CACHE_TTL_MS = 10000;
+const REFERRER_OPTIONS_CACHE_TTL_MS = 60000;
 
 export type StoredUser = {
   id: string;
@@ -69,22 +76,39 @@ async function readAuthMe(): Promise<(AuthUser & Partial<StoredUser>) | null> {
   return data.user ?? null;
 }
 
-export async function refreshCurrentUser(): Promise<AuthUser | null> {
-  const me = await readAuthMe();
-  currentUserCache = me
-    ? {
-        id: me.id,
-        email: me.email,
-        name: me.name,
-        isUnlimited: false,
-        planId: (me.planId ?? "free") as PlanId,
-      }
-    : null;
-  return currentUserCache;
+export async function refreshCurrentUser(opts?: { force?: boolean }): Promise<AuthUser | null> {
+  const force = opts?.force === true;
+  if (!force && currentUserCache && Date.now() - currentUserFetchedAt < USER_CACHE_TTL_MS) {
+    return currentUserCache;
+  }
+  if (!force && refreshUserInFlight) {
+    return refreshUserInFlight;
+  }
+  refreshUserInFlight = (async () => {
+    const me = await readAuthMe();
+    currentUserCache = me
+      ? {
+          id: me.id,
+          email: me.email,
+          name: me.name,
+          isUnlimited: false,
+          planId: (me.planId ?? "free") as PlanId,
+        }
+      : null;
+    currentUserFetchedAt = Date.now();
+    return currentUserCache;
+  })();
+  try {
+    return await refreshUserInFlight;
+  } finally {
+    refreshUserInFlight = null;
+  }
 }
 
 export function saveUser(user: AuthUser | null) {
   currentUserCache = user;
+  currentUserFetchedAt = Date.now();
+  refreshUserInFlight = null;
   if (user) lastSessionErrorCode = null;
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("mart-auth-updated"));
@@ -119,27 +143,48 @@ export type RegisterPayload = {
   referrerId?: string;
 };
 
-const DEFAULT_REFERRERS: ReferrerOption[] = [
-  { id: "ref-kim", name: "김영업" },
-  { id: "ref-lee", name: "이대리" },
-];
-
+/** 서버 `/api/public/referrer-options`만 신뢰. 빈 목록·오류 시 데모/로컬 목록으로 채우지 않음. */
 export async function fetchReferrerOptions(): Promise<ReferrerOption[]> {
+  if (referrerOptionsCache && Date.now() - referrerOptionsFetchedAt < REFERRER_OPTIONS_CACHE_TTL_MS) {
+    return referrerOptionsCache;
+  }
+  if (referrerOptionsInFlight) {
+    return referrerOptionsInFlight;
+  }
+  referrerOptionsInFlight = (async () => {
+    try {
+      const res = await fetch("/api/public/referrer-options", { cache: "no-store" });
+      if (!res.ok) {
+        referrerOptionsCache = [];
+        referrerOptionsFetchedAt = Date.now();
+        return [];
+      }
+      const data = (await res.json().catch(() => ({}))) as { options?: unknown };
+      if (!Array.isArray(data.options)) {
+        referrerOptionsCache = [];
+        referrerOptionsFetchedAt = Date.now();
+        return [];
+      }
+      const filtered = data.options.filter(
+        (v): v is ReferrerOption =>
+          v != null &&
+          typeof v === "object" &&
+          typeof (v as ReferrerOption).id === "string" &&
+          typeof (v as ReferrerOption).name === "string"
+      );
+      referrerOptionsCache = filtered;
+      referrerOptionsFetchedAt = Date.now();
+      return filtered;
+    } catch {
+      referrerOptionsCache = [];
+      referrerOptionsFetchedAt = Date.now();
+      return [];
+    }
+  })();
   try {
-    const res = await fetch("/api/public/referrer-options", { cache: "no-store" });
-    if (!res.ok) return DEFAULT_REFERRERS;
-    const data = (await res.json()) as { options?: unknown };
-    if (!Array.isArray(data.options)) return DEFAULT_REFERRERS;
-    const list = data.options.filter(
-      (v): v is ReferrerOption =>
-        v != null &&
-        typeof v === "object" &&
-        typeof (v as ReferrerOption).id === "string" &&
-        typeof (v as ReferrerOption).name === "string"
-    );
-    return list.length > 0 ? list : DEFAULT_REFERRERS;
-  } catch {
-    return DEFAULT_REFERRERS;
+    return await referrerOptionsInFlight;
+  } finally {
+    referrerOptionsInFlight = null;
   }
 }
 
@@ -182,6 +227,8 @@ export async function logout() {
     await fetch("/api/public/auth/logout", { method: "POST" });
   } finally {
     saveUser(null);
+    currentUserFetchedAt = 0;
+    refreshUserInFlight = null;
   }
 }
 

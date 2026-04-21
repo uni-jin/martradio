@@ -92,8 +92,8 @@ export default function SubscriptionPage() {
     return sub;
   };
 
-  const refreshSubscriptionFromServer = useCallback(async () => {
-    const u = await refreshCurrentUser();
+  const refreshSubscriptionFromServer = useCallback(async (userArg?: { id: string } | null) => {
+    const u = userArg ?? getCurrentUser() ?? (await refreshCurrentUser());
     if (!u?.id) return;
     try {
       const res = await fetch(`/api/subscription/status?userId=${encodeURIComponent(u.id)}`);
@@ -112,7 +112,7 @@ export default function SubscriptionPage() {
       if (!u) return;
       setUserId(u.id);
       setLocalPlanId(u.planId ?? "free");
-      await refreshSubscriptionFromServer();
+      await refreshSubscriptionFromServer(u);
     })();
   }, [refreshSubscriptionFromServer]);
 

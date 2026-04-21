@@ -17,6 +17,7 @@ import {
   nextBillingPlanIdFromSubscriptionServer,
   resolveSubscriptionPeriodDisplayIso,
 } from "@/lib/subscriptionUi";
+import { fetchAdminJsonCached } from "@/lib/adminClientCache";
 
 function formatKoDateShort(iso: string) {
   const d = new Date(iso);
@@ -52,19 +53,19 @@ export default function AdminUserDetailPage() {
   useEffect(() => {
     let canceled = false;
     void (async () => {
-      const res = await fetch("/api/admin/referrers", { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
+      const [refData, usersData, prodData, payData] = await Promise.all([
+        fetchAdminJsonCached<{ referrers?: AdminReferrer[] }>("/api/admin/referrers"),
+        fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
+        fetchAdminJsonCached<{ products?: { id: string; name: string; priceMonthly: number }[] }>(
+          "/api/admin/data/products"
+        ),
+        fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
+      ]);
       if (canceled) return;
-      setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
-      const usersRes = await fetch("/api/admin/users", { credentials: "include" });
-      const usersData = (await usersRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
-      if (!canceled) setUsers(Array.isArray(usersData.users) ? usersData.users : []);
-      const prodRes = await fetch("/api/admin/data/products", { credentials: "include" });
-      const prodData = (await prodRes.json().catch(() => ({}))) as { products?: { id: string; name: string; priceMonthly: number }[] };
-      if (!canceled) setProducts(Array.isArray(prodData.products) ? prodData.products : []);
-      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
-      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
-      if (!canceled) setPayments(Array.isArray(payData.payments) ? payData.payments : []);
+      setReferrers(Array.isArray(refData.referrers) ? refData.referrers : []);
+      setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+      setProducts(Array.isArray(prodData.products) ? prodData.products : []);
+      setPayments(Array.isArray(payData.payments) ? payData.payments : []);
     })();
     return () => {
       canceled = true;

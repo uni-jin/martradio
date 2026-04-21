@@ -7,6 +7,7 @@ import {
   RAW_TEXT_PLACEHOLDER,
   validatePromoScriptTemplate,
 } from "@/lib/promoScriptPrompt";
+import { fetchAdminJsonCached, invalidateAdminClientCache } from "@/lib/adminClientCache";
 
 export default function AdminPromoScriptPromptsPage() {
   const [template, setTemplate] = useState("");
@@ -21,16 +22,11 @@ export default function AdminPromoScriptPromptsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/settings/promo-script-prompt", { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as {
+      const data = await fetchAdminJsonCached<{
         template?: string;
         updatedAt?: string | null;
         source?: "db" | "default";
-        error?: string;
-      };
-      if (!res.ok) {
-        throw new Error(data.error || `불러오기 실패 (${res.status})`);
-      }
+      }>("/api/admin/settings/promo-script-prompt", { force: true });
       if (typeof data.template === "string") setTemplate(data.template);
       setUpdatedAt(data.updatedAt ?? null);
       setSource(data.source ?? null);
@@ -72,6 +68,7 @@ export default function AdminPromoScriptPromptsPage() {
       if (!res.ok) {
         throw new Error(data.error || `저장 실패 (${res.status})`);
       }
+      invalidateAdminClientCache("/api/admin/settings/promo-script-prompt");
       if (typeof data.template === "string") setTemplate(data.template);
       if (data.updatedAt) setUpdatedAt(data.updatedAt);
       setSource("db");

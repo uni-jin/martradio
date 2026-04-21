@@ -58,6 +58,9 @@ export type AdminTemplateOption = {
 
 /** 서버 `/api/public/plan-catalog` 응답 캐시 — 운영 상품은 DB(admin_kv)가 소스 */
 let planCatalogCache: AdminProduct[] | null = null;
+let planCatalogFetchedAt = 0;
+let planCatalogInFlight: Promise<AdminProduct[]> | null = null;
+const PLAN_CATALOG_CACHE_TTL_MS = 60000;
 
 const DEFAULT_ADMIN_PRODUCTS: AdminProduct[] = [
   {
@@ -99,15 +102,30 @@ const DEFAULT_ADMIN_PRODUCTS: AdminProduct[] = [
 ];
 
 export async function fetchPlanCatalog(): Promise<AdminProduct[]> {
-  try {
-    const res = await fetch("/api/public/plan-catalog", { cache: "no-store" });
-    const data = (await res.json().catch(() => ({}))) as { products?: AdminProduct[] };
-    const list = Array.isArray(data.products) ? data.products : [];
-    planCatalogCache = list.length > 0 ? list : null;
-  } catch {
-    planCatalogCache = null;
+  if (planCatalogCache && Date.now() - planCatalogFetchedAt < PLAN_CATALOG_CACHE_TTL_MS) {
+    return getAdminProducts();
   }
-  return getAdminProducts();
+  if (planCatalogInFlight) {
+    return planCatalogInFlight;
+  }
+  planCatalogInFlight = (async () => {
+    try {
+      const res = await fetch("/api/public/plan-catalog", { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as { products?: AdminProduct[] };
+      const list = Array.isArray(data.products) ? data.products : [];
+      planCatalogCache = list.length > 0 ? list : null;
+      planCatalogFetchedAt = Date.now();
+    } catch {
+      planCatalogCache = null;
+      planCatalogFetchedAt = Date.now();
+    }
+    return getAdminProducts();
+  })();
+  try {
+    return await planCatalogInFlight;
+  } finally {
+    planCatalogInFlight = null;
+  }
 }
 
 export function getAdminProducts(): AdminProduct[] {

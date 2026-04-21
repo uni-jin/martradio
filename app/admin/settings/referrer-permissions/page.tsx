@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import { ADMIN_MENU_GROUPS } from "@/lib/adminMenuCatalog";
 import { getCurrentAdmin } from "@/lib/adminAuth";
+import { fetchAdminJsonCached, invalidateAdminClientCache } from "@/lib/adminClientCache";
 
 type MenuGroupsPayload = typeof ADMIN_MENU_GROUPS;
 
@@ -22,20 +23,16 @@ export default function ReferrerAdminPermissionsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/settings/referrer-admin-permissions", { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as {
+      const data = await fetchAdminJsonCached<{
         menuGroups?: MenuGroupsPayload;
         allowedHrefs?: string[];
-        error?: string;
-      };
-      if (!res.ok) {
-        setError(typeof data.error === "string" ? data.error : "불러오지 못했습니다.");
-        return;
-      }
+      }>("/api/admin/settings/referrer-admin-permissions", { force: true });
       if (Array.isArray(data.menuGroups) && data.menuGroups.length > 0) {
         setMenuGroups(data.menuGroups as MenuGroupsPayload);
       }
       setAllowed(new Set(Array.isArray(data.allowedHrefs) ? data.allowedHrefs : []));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
@@ -80,6 +77,7 @@ export default function ReferrerAdminPermissionsPage() {
         setError(typeof data.error === "string" ? data.error : "저장에 실패했습니다.");
         return;
       }
+      invalidateAdminClientCache("/api/admin/settings/referrer-admin-permissions");
       if (Array.isArray(data.allowedHrefs)) {
         setAllowed(new Set(data.allowedHrefs));
       }

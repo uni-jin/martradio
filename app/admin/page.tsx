@@ -10,6 +10,7 @@ import {
   type AdminDashboardStats,
   type AdminReferrer,
 } from "@/lib/adminData";
+import { fetchAdminJsonCached } from "@/lib/adminClientCache";
 
 const money = (n: number) => `${n.toLocaleString("ko-KR")}원`;
 
@@ -87,30 +88,24 @@ export default function AdminHomePage() {
   useEffect(() => {
     let canceled = false;
     void (async () => {
-      const res = await fetch("/api/admin/referrers", { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as { referrers?: AdminReferrer[] };
-      const list = Array.isArray(data.referrers) ? data.referrers : [];
+      const [refData, usersData, prodData, payData, voiceData] = await Promise.all([
+        fetchAdminJsonCached<{ referrers?: AdminReferrer[] }>("/api/admin/referrers"),
+        fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
+        fetchAdminJsonCached<{ products?: { id: string; name: string }[] }>("/api/admin/data/products"),
+        fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
+        fetchAdminJsonCached<{ voices?: { paidOnly?: boolean; enabled?: boolean }[] }>("/api/admin/data/voices"),
+      ]);
+      const list = Array.isArray(refData.referrers) ? refData.referrers : [];
+      const loadedUsers = Array.isArray(usersData.users) ? usersData.users : [];
+      const loadedProducts = Array.isArray(prodData.products) ? prodData.products : [];
+      const loadedPayments = Array.isArray(payData.payments) ? payData.payments : [];
+      const voices = Array.isArray(voiceData.voices) ? voiceData.voices : [];
       if (canceled) return;
       setReferrers(list);
-      const usersRes = await fetch("/api/admin/users", { credentials: "include" });
-      const usersData = (await usersRes.json().catch(() => ({}))) as { users?: Record<string, unknown>[] };
-      const loadedUsers = Array.isArray(usersData.users) ? usersData.users : [];
-      if (canceled) return;
       setUsers(loadedUsers);
-      const prodRes = await fetch("/api/admin/data/products", { credentials: "include" });
-      const prodData = (await prodRes.json().catch(() => ({}))) as { products?: { id: string; name: string }[] };
-      const loadedProducts = Array.isArray(prodData.products) ? prodData.products : [];
-      if (canceled) return;
       setProducts(loadedProducts);
-      const payRes = await fetch("/api/admin/data/payments", { credentials: "include" });
-      const payData = (await payRes.json().catch(() => ({}))) as { payments?: AdminPayment[] };
-      const loadedPayments = Array.isArray(payData.payments) ? payData.payments : [];
-      if (canceled) return;
       setPayments(loadedPayments);
-      const voiceRes = await fetch("/api/admin/data/voices", { credentials: "include" });
-      const voiceData = (await voiceRes.json().catch(() => ({}))) as { voices?: { paidOnly?: boolean }[] };
-      if (canceled) return;
-      setVoicesPaidOnlyCount((voiceData.voices ?? []).filter((v) => v.paidOnly === true).length);
+      setVoicesPaidOnlyCount(voices.filter((v) => v.paidOnly === true).length);
       const paidUsers = loadedUsers.filter((u) => String(u.planId ?? "free") !== "free").length;
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
       const paymentsThisMonth = loadedPayments.filter((p) => new Date(p.paidAt).getTime() >= monthStart).length;
@@ -131,8 +126,8 @@ export default function AdminHomePage() {
         templatesTotal: 0,
         templatesPaidOnly: 0,
         productsActive: loadedProducts.filter((p: any) => p.isActive !== false).length,
-        voicesEnabled: (voiceData.voices ?? []).filter((v: any) => v.enabled !== false).length,
-        voicesTotal: (voiceData.voices ?? []).length,
+        voicesEnabled: voices.filter((v) => v.enabled !== false).length,
+        voicesTotal: voices.length,
         payments7d: loadedPayments.filter(
           (p) => new Date(p.paidAt).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000
         ).length,

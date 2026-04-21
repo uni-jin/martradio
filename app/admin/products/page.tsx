@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import type { AdminProduct } from "@/lib/adminData";
+import { fetchAdminJsonCached, invalidateAdminClientCache } from "@/lib/adminClientCache";
 
 function parseOptInt(raw: string): number | null {
   const t = raw.trim();
@@ -20,11 +21,10 @@ export default function AdminProductsPage() {
 
   const load = useCallback(async () => {
     setError(null);
-    const res = await fetch("/api/admin/data/products", { credentials: "include" });
-    const data = (await res.json().catch(() => ({}))) as { products?: AdminProduct[]; error?: string };
-    if (!res.ok) {
-      throw new Error(data.error || "목록을 불러오지 못했습니다.");
-    }
+    const data = await fetchAdminJsonCached<{ products?: AdminProduct[] }>(
+      "/api/admin/data/products",
+      { force: true }
+    );
     setList(Array.isArray(data.products) ? data.products : []);
   }, []);
 
@@ -60,6 +60,7 @@ export default function AdminProductsPage() {
       if (!res.ok) {
         throw new Error(data.error || "저장에 실패했습니다.");
       }
+      invalidateAdminClientCache("/api/admin/data/products");
       setSavedMessage("저장했습니다.");
       await load();
     } catch (e) {
