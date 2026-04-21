@@ -1,7 +1,7 @@
 /** Chirp 3 HD: markup + 전체 보이스 이름. Gemini-TTS: 짧은 보이스 이름(Puck 등) + 프롬프트 */
 export type VoiceTtsEngine = "chirp3-hd" | "gemini-3.1-flash-tts-preview";
 
-/** 관리자가 정의하는 Google Cloud TTS 음성 템플릿 (localStorage) */
+/** 관리자가 정의하는 Google Cloud TTS 음성 템플릿(Supabase `admin_kv` 등 서버 저장) */
 export type VoiceTemplate = {
   id: string;
   /** 사용자에게 보이는 이름 */

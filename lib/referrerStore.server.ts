@@ -50,26 +50,6 @@ function isValidLoginId(raw: string): boolean {
   return /^[a-zA-Z0-9]+$/.test(s);
 }
 
-function defaultSeedReferrers(now: string): StoredReferrer[] {
-  const seeds: Array<{ id: string; loginId: string; name: string; personName: string }> = [
-    { id: "ref-kim", loginId: "kimsales", name: "kim-sales", personName: "김영업" },
-    { id: "ref-lee", loginId: "leesales", name: "lee-sales", personName: "이대리" },
-  ];
-  return seeds.map((s) => ({
-    id: s.id,
-    loginId: normalizeLoginId(s.loginId),
-    name: s.name,
-    personName: s.personName,
-    phone: "",
-    email: "",
-    isActive: true,
-    passwordHash: "",
-    usesDefaultPassword: true,
-    createdAt: now,
-    updatedAt: now,
-  }));
-}
-
 async function withPasswordHashes(rows: StoredReferrer[]): Promise<StoredReferrer[]> {
   const out: StoredReferrer[] = [];
   for (const r of rows) {
@@ -164,12 +144,6 @@ async function migrateLegacyFileToDbIfNeeded(): Promise<void> {
     }
     return;
   }
-
-  const now = new Date().toISOString();
-  const seeded = await withPasswordHashes(defaultSeedReferrers(now));
-  for (const r of seeded) {
-    await supabase.from("referrer_accounts").insert(storedToRow(r));
-  }
 }
 
 function normalizeReferrerRow(r: StoredReferrer): StoredReferrer {
@@ -202,18 +176,6 @@ export async function readReferrerStore(): Promise<ReferrerStoreFile> {
   const res = await supabase.from("referrer_accounts").select("*").order("created_at", { ascending: true });
   if (res.error) throw new Error(res.error.message);
   const rows = res.data ?? [];
-  if (rows.length === 0) {
-    const now = new Date().toISOString();
-    const seeded = await withPasswordHashes(defaultSeedReferrers(now));
-    for (const r of seeded) {
-      await supabase.from("referrer_accounts").insert(storedToRow(r));
-    }
-    const again = await supabase.from("referrer_accounts").select("*").order("created_at", { ascending: true });
-    if (again.error) throw new Error(again.error.message);
-    const referrers = (again.data ?? []).map((x) => rowToStored(x as Parameters<typeof rowToStored>[0]));
-    const referrerAdminAllowedHrefs = sanitizeAllowedHrefs(await getReferrerAdminAllowedHrefsDb());
-    return { referrers, referrerAdminAllowedHrefs };
-  }
   const referrers = rows.map((x) => rowToStored(x as Parameters<typeof rowToStored>[0]));
   const referrerAdminAllowedHrefs = sanitizeAllowedHrefs(await getReferrerAdminAllowedHrefsDb());
   return { referrers, referrerAdminAllowedHrefs };

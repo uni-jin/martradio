@@ -33,6 +33,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [adminOk, setAdminOk] = useState<boolean | null>(null);
+  const [userResolved, setUserResolved] = useState(false);
 
   const p = pathname ?? "";
   const isPublic = isUserPublicPath(p);
@@ -61,6 +62,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (isPublic) {
       setAdminOk(null);
+      setUserResolved(true);
       return;
     }
 
@@ -83,6 +85,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
           return;
         }
         setAdminOk(true);
+        setUserResolved(true);
         return;
       }
       void (async () => {
@@ -101,18 +104,22 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
           return;
         }
         setAdminOk(true);
+        setUserResolved(true);
       })();
       return;
     }
 
     setAdminOk(null);
+    setUserResolved(false);
     void (async () => {
       const user = await refreshCurrentUser({ force: true });
       if (!user) {
         const code = getLastSessionErrorCode();
         if (code) router.replace(`/login?reason=${encodeURIComponent(code)}`);
         else router.replace("/login");
+        return;
       }
+      setUserResolved(true);
     })();
   }, [mounted, p, isPublic, isAdmin, isAdminLogin, router]);
 
@@ -139,6 +146,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   if (!getCurrentUser()) {
+    return loadingScreen;
+  }
+  if (!userResolved) {
     return loadingScreen;
   }
 
