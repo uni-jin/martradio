@@ -11,7 +11,7 @@ import {
 export default function AdminPromoScriptPromptsPage() {
   const [template, setTemplate] = useState("");
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
-  const [source, setSource] = useState<"file" | "default" | null>(null);
+  const [source, setSource] = useState<"db" | "default" | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export default function AdminPromoScriptPromptsPage() {
       const data = (await res.json().catch(() => ({}))) as {
         template?: string;
         updatedAt?: string | null;
-        source?: "file" | "default";
+        source?: "db" | "default";
         error?: string;
       };
       if (!res.ok) {
@@ -74,7 +74,7 @@ export default function AdminPromoScriptPromptsPage() {
       }
       if (typeof data.template === "string") setTemplate(data.template);
       if (data.updatedAt) setUpdatedAt(data.updatedAt);
-      setSource("file");
+      setSource("db");
       setSavedMessage("저장했습니다. 이후 방송문 생성 요청부터 이 프롬프트가 적용됩니다.");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -101,7 +101,7 @@ export default function AdminPromoScriptPromptsPage() {
       ) : (
         <>
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-stone-500">
-            {source === "file" && updatedAt && (
+            {source === "db" && updatedAt && (
               <span>마지막 저장: {new Date(updatedAt).toLocaleString("ko-KR")}</span>
             )}
             {source === "default" && <span>아직 저장된 설정 없음 · 코드 기본값 표시 중</span>}

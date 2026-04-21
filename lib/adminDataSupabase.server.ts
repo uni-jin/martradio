@@ -1,4 +1,5 @@
 import type { VoiceTemplate } from "@/lib/voiceTemplateTypes";
+import { DEFAULT_PROMO_SCRIPT_TEMPLATE } from "@/lib/promoScriptPrompt";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
 export type AdminTemplate = {
@@ -183,5 +184,105 @@ export async function updateUserReferrerDb(userId: string, referrerId: string | 
     .update({ referrer_id: referrerId, updated_at: new Date().toISOString() })
     .eq("id", userId);
   if (row.error) throw new Error(row.error.message);
+}
+
+const PROMO_SCRIPT_PROMPT_KV = "promo_script_prompt";
+const REFERRER_ADMIN_ALLOWED_HREFS_KV = "referrer_admin_allowed_hrefs";
+
+let legacyPromoMigrated = false;
+
+async function migrateLegacyPromoFileOnce(): Promise<void> {
+  if (legacyPromoMigrated) return;
+  legacyPromoMigrated = true;
+  try {
+    const cur = await readKv<{ template?: string; updated_at?: string } | null>(PROMO_SCRIPT_PROMPT_KV, null);
+    if (cur && typeof cur.template === "string" && cur.template.trim()) return;
+    const { existsSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { ensureMartradioDataDir } = await import("@/lib/martradioDataDir.server");
+    const p = join(ensureMartradioDataDir(), "promo-script-prompt.json");
+    if (!existsSync(p)) return;
+    const raw = readFileSync(p, "utf8");
+    if (!raw.trim()) return;
+    const parsed = JSON.parse(raw) as { template?: string; updatedAt?: string };
+    if (typeof parsed.template !== "string" || !parsed.template.trim()) return;
+    const updatedAt =
+      typeof parsed.updatedAt === "string" && parsed.updatedAt
+        ? parsed.updatedAt
+        : new Date().toISOString();
+    await writeKv(PROMO_SCRIPT_PROMPT_KV, { template: parsed.template.trim(), updated_at: updatedAt });
+  } catch {
+    // 레거시 파일 없음 또는 파싱 실패 시 무시
+  }
+}
+
+export async function getPromoScriptPromptForEditDb(): Promise<{
+  template: string;
+  updatedAt: string | null;
+  source: "db" | "default";
+}> {
+  await migrateLegacyPromoFileOnce();
+  const row = await readKv<{ template?: string; updated_at?: string } | null>(PROMO_SCRIPT_PROMPT_KV, null);
+  if (row && typeof row.template === "string" && row.template.trim()) {
+    return {
+      template: row.template.trim(),
+      updatedAt: typeof row.updated_at === "string" && row.updated_at ? row.updated_at : null,
+      source: "db",
+    };
+  }
+  return {
+    template: DEFAULT_PROMO_SCRIPT_TEMPLATE,
+    updatedAt: null,
+    source: "default",
+  };
+}
+
+export async function savePromoScriptPromptDb(template: string): Promise<{ template: string; updatedAt: string }> {
+  const updatedAt = new Date().toISOString();
+  await writeKv(PROMO_SCRIPT_PROMPT_KV, { template: template.trim(), updated_at: updatedAt });
+  return { template: template.trim(), updatedAt };
+}
+
+export async function getReferrerAdminAllowedHrefsDb(): Promise<string[]> {
+  const v = await readKv<unknown>(REFERRER_ADMIN_ALLOWED_HREFS_KV, []);
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+export async function setReferrerAdminAllowedHrefsDb(hrefs: string[]): Promise<void> {
+  await writeKv(REFERRER_ADMIN_ALLOWED_HREFS_KV, hrefs);
+}
+
+/** 구독 결제 확정 시 관리자 결제 목록에 반영(동일 orderId면 upsert로 덮어씀). */
+export async function recordAdminPaymentForSubscriptionCharge(params: {
+  userId: string;
+  planId: string;
+  orderId: string;
+  paymentKey: string;
+  amountKrw: number;
+  paidAtIso: string;
+}): Promise<void> {
+  if (!Number.isFinite(params.amountKrw) || params.amountKrw <= 0) return;
+  const supabase = getSupabaseServerClient();
+  const u = await supabase
+    .from("app_users")
+    .select("username,referrer_id")
+    .eq("id", params.userId)
+    .limit(1)
+    .maybeSingle();
+  if (u.error || !u.data) return;
+  const id = `pay_${params.orderId}`;
+  await saveAdminPaymentDb({
+    id,
+    userId: params.userId,
+    username: u.data.username,
+    productId: params.planId,
+    amount: Math.floor(params.amountKrw),
+    paidAt: params.paidAtIso,
+    referrerId: u.data.referrer_id,
+    source: "web_checkout",
+    paymentKey: params.paymentKey,
+    orderId: params.orderId,
+    status: "DONE",
+  });
 }
 

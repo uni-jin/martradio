@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "amount가 필요합니다." }, { status: 400 });
   }
 
-  const pending = getPendingCheckout(body.orderId);
+  const pending = await getPendingCheckout(body.orderId);
   if (!pending) {
     return NextResponse.json({ error: "유효한 결제 시작 정보가 없습니다." }, { status: 400 });
   }
@@ -90,15 +90,16 @@ export async function POST(request: NextRequest) {
 
   const approvedAt =
     typeof tossData.approvedAt === "string" ? tossData.approvedAt : new Date().toISOString();
-  const status = upsertSubscriptionAfterConfirm({
+  const status = await upsertSubscriptionAfterConfirm({
     userId: body.userId.trim(),
     planId: paidPlanId,
     paymentKey: body.paymentKey,
     orderId: body.orderId,
     approvedAt,
     newBillingCycle: pending.newBillingCycle === true,
+    chargedAmountKrw: body.amount,
   });
-  deletePendingCheckout(body.orderId);
+  await deletePendingCheckout(body.orderId);
 
   return NextResponse.json({
     ok: true,

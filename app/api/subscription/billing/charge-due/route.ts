@@ -59,15 +59,21 @@ export async function POST(request: NextRequest) {
       reason: "허용된 자동청구 실행 시각(10시/13시 KST)이 아닙니다.",
     });
   }
-  const due = getDueRecurringBillingTargets(nowIso);
+  const due = await getDueRecurringBillingTargets(nowIso);
 
   const results: Array<{ userId: string; ok: boolean; message: string }> = [];
   for (const target of due) {
-    if (stage === "primary" && hasPrimaryBillingFailure(target.userId, target.nextPaymentDueAt)) {
+    if (
+      stage === "primary" &&
+      (await hasPrimaryBillingFailure(target.userId, target.nextPaymentDueAt))
+    ) {
       results.push({ userId: target.userId, ok: false, message: "already_failed_primary" });
       continue;
     }
-    if (stage === "retry" && !hasPrimaryBillingFailure(target.userId, target.nextPaymentDueAt)) {
+    if (
+      stage === "retry" &&
+      !(await hasPrimaryBillingFailure(target.userId, target.nextPaymentDueAt))
+    ) {
       continue;
     }
     const orderId = newRecurringOrderId(target.userId);
@@ -91,12 +97,12 @@ export async function POST(request: NextRequest) {
         const message =
           typeof data.message === "string" ? data.message : "자동청구 승인 실패";
         if (stage === "primary") {
-          markPrimaryBillingFailure(target.userId, target.nextPaymentDueAt, message);
+          await markPrimaryBillingFailure(target.userId, target.nextPaymentDueAt, message);
         } else {
-          markRetryBillingFailure(target.userId, target.nextPaymentDueAt, message);
-          terminateSubscriptionAfterBillingFailure(target.userId);
+          await markRetryBillingFailure(target.userId, target.nextPaymentDueAt, message);
+          await terminateSubscriptionAfterBillingFailure(target.userId);
         }
-        appendWebhookLog({
+        await appendWebhookLog({
           receivedAt: new Date().toISOString(),
           eventType: stage === "primary" ? "BILLING_CHARGE_FAILED" : "BILLING_CHARGE_RETRY_FAILED",
           orderId,
@@ -111,22 +117,23 @@ export async function POST(request: NextRequest) {
         typeof data.approvedAt === "string" && data.approvedAt
           ? data.approvedAt
           : new Date().toISOString();
-      upsertSubscriptionAfterConfirm({
+      await upsertSubscriptionAfterConfirm({
         userId: target.userId,
         planId: target.planId,
         paymentKey: data.paymentKey,
         orderId: typeof data.orderId === "string" ? data.orderId : orderId,
         approvedAt,
+        chargedAmountKrw: amount,
       });
-      clearBillingFailureAttempt(target.userId);
+      await clearBillingFailureAttempt(target.userId);
       results.push({ userId: target.userId, ok: true, message: "charged" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (stage === "primary") {
-        markPrimaryBillingFailure(target.userId, target.nextPaymentDueAt, message);
+        await markPrimaryBillingFailure(target.userId, target.nextPaymentDueAt, message);
       } else {
-        markRetryBillingFailure(target.userId, target.nextPaymentDueAt, message);
-        terminateSubscriptionAfterBillingFailure(target.userId);
+        await markRetryBillingFailure(target.userId, target.nextPaymentDueAt, message);
+        await terminateSubscriptionAfterBillingFailure(target.userId);
       }
       results.push({
         userId: target.userId,

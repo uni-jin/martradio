@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdminApi } from "@/lib/requireAdminApi.server";
 import { validatePromoScriptTemplate } from "@/lib/promoScriptPrompt";
-import {
-  getPromoScriptTemplateForEdit,
-  writePromoScriptPromptPersisted,
-} from "@/lib/promoScriptPromptStore.server";
+import { getPromoScriptTemplateForEdit, writePromoScriptPromptPersisted } from "@/lib/promoScriptPromptStore.server";
 
 export async function GET() {
   const admin = await requireSuperAdminApi();
   if (admin instanceof NextResponse) return admin;
 
-  const { template, updatedAt, source } = getPromoScriptTemplateForEdit();
+  const { template, updatedAt, source } = await getPromoScriptTemplateForEdit();
   return NextResponse.json({ template, updatedAt, source });
 }
 
@@ -31,11 +28,11 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: err }, { status: 400 });
   }
 
-  const saved = writePromoScriptPromptPersisted(template);
+  const saved = await writePromoScriptPromptPersisted(template);
   return NextResponse.json({
     ok: true,
     template: saved.template,
     updatedAt: saved.updatedAt,
-    source: "file" as const,
+    source: "db" as const,
   });
 }

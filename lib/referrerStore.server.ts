@@ -1,11 +1,16 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  getReferrerAdminAllowedHrefsDb,
+  setReferrerAdminAllowedHrefsDb,
+} from "@/lib/adminDataSupabase.server";
 import { getSuperAdminUsernameNormalized } from "@/lib/adminCredentials.server";
 import { ensureMartradioDataDir } from "@/lib/martradioDataDir.server";
 import { collectAssignableMenuHrefs, REFERRER_ADMIN_PASSWORD_HREF } from "@/lib/adminMenuCatalog";
 import { hashAdminPassword, verifyAdminPassword } from "@/lib/adminPasswordCrypto.server";
+import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
-function referrerStorePath(): string {
+function legacyReferrerStorePath(): string {
   return join(ensureMartradioDataDir(), "referrer-store.json");
 }
 
@@ -27,7 +32,11 @@ export type ReferrerPublic = Omit<StoredReferrer, "passwordHash">;
 
 type ReferrerStoreFile = {
   referrers: StoredReferrer[];
-  /** 추천인 관리자에게 허용할 메뉴 href 목록 */
+  referrerAdminAllowedHrefs: string[];
+};
+
+type LegacyReferrerStoreFile = {
+  referrers: StoredReferrer[];
   referrerAdminAllowedHrefs: string[];
 };
 
@@ -73,13 +82,13 @@ async function withPasswordHashes(rows: StoredReferrer[]): Promise<StoredReferre
   return out;
 }
 
-function readRaw(): ReferrerStoreFile | null {
+function readLegacyFile(): LegacyReferrerStoreFile | null {
   try {
-    const STORE_PATH = referrerStorePath();
+    const STORE_PATH = legacyReferrerStorePath();
     if (!existsSync(STORE_PATH)) return null;
     const raw = readFileSync(STORE_PATH, "utf8");
     if (!raw.trim()) return null;
-    const parsed = JSON.parse(raw) as Partial<ReferrerStoreFile>;
+    const parsed = JSON.parse(raw) as Partial<LegacyReferrerStoreFile>;
     if (!Array.isArray(parsed.referrers)) return null;
     const allowed = Array.isArray(parsed.referrerAdminAllowedHrefs)
       ? parsed.referrerAdminAllowedHrefs.filter((x): x is string => typeof x === "string" && x.startsWith("/"))
@@ -90,27 +99,77 @@ function readRaw(): ReferrerStoreFile | null {
   }
 }
 
-function writeRaw(state: ReferrerStoreFile): void {
-  ensureMartradioDataDir();
-  writeFileSync(referrerStorePath(), JSON.stringify(state, null, 2), "utf8");
+function rowToStored(r: {
+  id: string;
+  login_id: string;
+  name: string;
+  person_name: string | null;
+  phone: string | null;
+  email: string | null;
+  is_active: boolean;
+  password_hash: string;
+  uses_default_password: boolean;
+  created_at: string;
+  updated_at: string;
+}): StoredReferrer {
+  return normalizeReferrerRow({
+    id: r.id,
+    loginId: r.login_id,
+    name: r.name,
+    personName: r.person_name ?? "",
+    phone: r.phone ?? "",
+    email: r.email ?? "",
+    isActive: r.is_active,
+    passwordHash: r.password_hash,
+    usesDefaultPassword: r.uses_default_password,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  });
 }
 
-export async function readReferrerStore(): Promise<ReferrerStoreFile> {
-  const now = new Date().toISOString();
-  const existing = readRaw();
-  if (existing) {
-    return {
-      referrers: existing.referrers.map(normalizeReferrerRow),
-      referrerAdminAllowedHrefs: sanitizeAllowedHrefs(existing.referrerAdminAllowedHrefs),
-    };
-  }
-  const seeded = await withPasswordHashes(defaultSeedReferrers(now));
-  const initial: ReferrerStoreFile = {
-    referrers: seeded,
-    referrerAdminAllowedHrefs: [],
+function storedToRow(r: StoredReferrer): Record<string, unknown> {
+  return {
+    id: r.id,
+    login_id: r.loginId,
+    name: r.name,
+    person_name: r.personName,
+    phone: r.phone,
+    email: r.email,
+    is_active: r.isActive,
+    password_hash: r.passwordHash,
+    uses_default_password: r.usesDefaultPassword,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
   };
-  writeRaw(initial);
-  return initial;
+}
+
+let migratedLegacyFile = false;
+
+async function migrateLegacyFileToDbIfNeeded(): Promise<void> {
+  if (migratedLegacyFile) return;
+  migratedLegacyFile = true;
+  const supabase = getSupabaseServerClient();
+  const cnt = await supabase.from("referrer_accounts").select("id", { count: "exact", head: true });
+  if (cnt.error) return;
+  if ((cnt.count ?? 0) > 0) return;
+
+  const legacy = readLegacyFile();
+  if (legacy?.referrers?.length) {
+    const hashed = await withPasswordHashes(legacy.referrers.map(normalizeReferrerRow));
+    for (const r of hashed) {
+      await supabase.from("referrer_accounts").upsert(storedToRow(r), { onConflict: "id" });
+    }
+    if (legacy.referrerAdminAllowedHrefs.length > 0) {
+      await setReferrerAdminAllowedHrefsDb(sanitizeAllowedHrefs(legacy.referrerAdminAllowedHrefs));
+    }
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const seeded = await withPasswordHashes(defaultSeedReferrers(now));
+  for (const r of seeded) {
+    await supabase.from("referrer_accounts").insert(storedToRow(r));
+  }
 }
 
 function normalizeReferrerRow(r: StoredReferrer): StoredReferrer {
@@ -137,11 +196,47 @@ function sanitizeAllowedHrefs(list: string[]): string[] {
   return [...new Set(out)];
 }
 
+export async function readReferrerStore(): Promise<ReferrerStoreFile> {
+  await migrateLegacyFileToDbIfNeeded();
+  const supabase = getSupabaseServerClient();
+  const res = await supabase.from("referrer_accounts").select("*").order("created_at", { ascending: true });
+  if (res.error) throw new Error(res.error.message);
+  const rows = res.data ?? [];
+  if (rows.length === 0) {
+    const now = new Date().toISOString();
+    const seeded = await withPasswordHashes(defaultSeedReferrers(now));
+    for (const r of seeded) {
+      await supabase.from("referrer_accounts").insert(storedToRow(r));
+    }
+    const again = await supabase.from("referrer_accounts").select("*").order("created_at", { ascending: true });
+    if (again.error) throw new Error(again.error.message);
+    const referrers = (again.data ?? []).map((x) => rowToStored(x as Parameters<typeof rowToStored>[0]));
+    const referrerAdminAllowedHrefs = sanitizeAllowedHrefs(await getReferrerAdminAllowedHrefsDb());
+    return { referrers, referrerAdminAllowedHrefs };
+  }
+  const referrers = rows.map((x) => rowToStored(x as Parameters<typeof rowToStored>[0]));
+  const referrerAdminAllowedHrefs = sanitizeAllowedHrefs(await getReferrerAdminAllowedHrefsDb());
+  return { referrers, referrerAdminAllowedHrefs };
+}
+
 export async function writeReferrerStore(next: ReferrerStoreFile): Promise<void> {
-  writeRaw({
-    referrers: next.referrers.map(normalizeReferrerRow),
-    referrerAdminAllowedHrefs: sanitizeAllowedHrefs(next.referrerAdminAllowedHrefs),
-  });
+  const supabase = getSupabaseServerClient();
+  const normalized = next.referrers.map(normalizeReferrerRow);
+  const ids = new Set(normalized.map((r) => r.id));
+  const existing = await supabase.from("referrer_accounts").select("id");
+  if (existing.error) throw new Error(existing.error.message);
+  for (const row of existing.data ?? []) {
+    const id = row.id as string;
+    if (!ids.has(id)) {
+      const del = await supabase.from("referrer_accounts").delete().eq("id", id);
+      if (del.error) throw new Error(del.error.message);
+    }
+  }
+  for (const r of normalized) {
+    const up = await supabase.from("referrer_accounts").upsert(storedToRow(r), { onConflict: "id" });
+    if (up.error) throw new Error(up.error.message);
+  }
+  await setReferrerAdminAllowedHrefsDb(sanitizeAllowedHrefs(next.referrerAdminAllowedHrefs));
 }
 
 export function toPublicReferrer(r: StoredReferrer): ReferrerPublic {
@@ -159,24 +254,26 @@ export async function getReferrerOptionsPublic(): Promise<{ id: string; name: st
 
 export async function findReferrerByLoginId(loginId: string): Promise<StoredReferrer | null> {
   const key = normalizeLoginId(loginId);
-  const { referrers } = await readReferrerStore();
-  return referrers.find((r) => r.loginId === key) ?? null;
+  const supabase = getSupabaseServerClient();
+  const res = await supabase.from("referrer_accounts").select("*").eq("login_id", key).limit(1).maybeSingle();
+  if (res.error || !res.data) return null;
+  return rowToStored(res.data as Parameters<typeof rowToStored>[0]);
 }
 
 export async function findReferrerById(id: string): Promise<StoredReferrer | null> {
-  const { referrers } = await readReferrerStore();
-  return referrers.find((r) => r.id === id) ?? null;
+  const supabase = getSupabaseServerClient();
+  const res = await supabase.from("referrer_accounts").select("*").eq("id", id).limit(1).maybeSingle();
+  if (res.error || !res.data) return null;
+  return rowToStored(res.data as Parameters<typeof rowToStored>[0]);
 }
 
 export async function getAllowedHrefsForReferrerAdmins(): Promise<string[]> {
-  const { referrerAdminAllowedHrefs } = await readReferrerStore();
-  return referrerAdminAllowedHrefs;
+  return sanitizeAllowedHrefs(await getReferrerAdminAllowedHrefsDb());
 }
 
 export async function setAllowedHrefsForReferrerAdmins(hrefs: string[]): Promise<string[]> {
-  const state = await readReferrerStore();
   const nextAllowed = sanitizeAllowedHrefs(hrefs);
-  await writeReferrerStore({ ...state, referrerAdminAllowedHrefs: nextAllowed });
+  await setReferrerAdminAllowedHrefsDb(nextAllowed);
   return nextAllowed;
 }
 
@@ -205,8 +302,8 @@ export async function createReferrerRecord(input: {
   if (loginId === getSuperAdminUsernameNormalized()) {
     return { ok: false, error: "최고 관리자 아이디와 동일한 추천인 ID는 사용할 수 없습니다." };
   }
-  const state = await readReferrerStore();
-  if (state.referrers.some((r) => r.loginId === loginId)) {
+  const dup = await findReferrerByLoginId(loginId);
+  if (dup) {
     return { ok: false, error: "이미 사용 중인 추천인 ID입니다." };
   }
   const now = new Date().toISOString();
@@ -225,7 +322,9 @@ export async function createReferrerRecord(input: {
     createdAt: now,
     updatedAt: now,
   };
-  await writeReferrerStore({ ...state, referrers: [...state.referrers, row] });
+  const supabase = getSupabaseServerClient();
+  const ins = await supabase.from("referrer_accounts").insert(storedToRow(row));
+  if (ins.error) return { ok: false, error: ins.error.message };
   return { ok: true, row };
 }
 
@@ -239,10 +338,8 @@ export async function updateReferrerRecord(
     isActive: boolean;
   }
 ): Promise<{ ok: true; row: StoredReferrer } | { ok: false; error: string }> {
-  const state = await readReferrerStore();
-  const idx = state.referrers.findIndex((r) => r.id === id);
-  if (idx < 0) return { ok: false, error: "추천인을 찾을 수 없습니다." };
-  const prev = state.referrers[idx]!;
+  const prev = await findReferrerById(id);
+  if (!prev) return { ok: false, error: "추천인을 찾을 수 없습니다." };
   const now = new Date().toISOString();
   const row: StoredReferrer = {
     ...prev,
@@ -253,19 +350,15 @@ export async function updateReferrerRecord(
     isActive: patch.isActive,
     updatedAt: now,
   };
-  const nextList = [...state.referrers];
-  nextList[idx] = row;
-  await writeReferrerStore({ ...state, referrers: nextList });
+  const supabase = getSupabaseServerClient();
+  const up = await supabase.from("referrer_accounts").update(storedToRow(row)).eq("id", id);
+  if (up.error) return { ok: false, error: up.error.message };
   return { ok: true, row };
 }
 
-export async function resetReferrerPasswordToDefault(
-  id: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const state = await readReferrerStore();
-  const idx = state.referrers.findIndex((r) => r.id === id);
-  if (idx < 0) return { ok: false, error: "추천인을 찾을 수 없습니다." };
-  const prev = state.referrers[idx]!;
+export async function resetReferrerPasswordToDefault(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const prev = await findReferrerById(id);
+  if (!prev) return { ok: false, error: "추천인을 찾을 수 없습니다." };
   const passwordHash = await hashAdminPassword(prev.loginId);
   const row: StoredReferrer = {
     ...prev,
@@ -273,9 +366,9 @@ export async function resetReferrerPasswordToDefault(
     usesDefaultPassword: true,
     updatedAt: new Date().toISOString(),
   };
-  const nextList = [...state.referrers];
-  nextList[idx] = row;
-  await writeReferrerStore({ ...state, referrers: nextList });
+  const supabase = getSupabaseServerClient();
+  const up = await supabase.from("referrer_accounts").update(storedToRow(row)).eq("id", id);
+  if (up.error) return { ok: false, error: up.error.message };
   return { ok: true };
 }
 
@@ -292,10 +385,8 @@ export async function changeReferrerPassword(params: {
   if (newPw === params.loginId) {
     return { ok: false, error: "새 비밀번호는 추천인 ID와 같을 수 없습니다." };
   }
-  const state = await readReferrerStore();
-  const idx = state.referrers.findIndex((r) => r.id === params.referrerId);
-  if (idx < 0) return { ok: false, error: "계정을 찾을 수 없습니다." };
-  const prev = state.referrers[idx]!;
+  const prev = await findReferrerById(params.referrerId);
+  if (!prev) return { ok: false, error: "계정을 찾을 수 없습니다." };
   if (prev.loginId !== params.loginId) {
     return { ok: false, error: "계정을 찾을 수 없습니다." };
   }
@@ -310,9 +401,9 @@ export async function changeReferrerPassword(params: {
     usesDefaultPassword: false,
     updatedAt: new Date().toISOString(),
   };
-  const nextList = [...state.referrers];
-  nextList[idx] = row;
-  await writeReferrerStore({ ...state, referrers: nextList });
+  const supabase = getSupabaseServerClient();
+  const up = await supabase.from("referrer_accounts").update(storedToRow(row)).eq("id", params.referrerId);
+  if (up.error) return { ok: false, error: up.error.message };
   return { ok: true };
 }
 
@@ -332,8 +423,8 @@ export async function importLegacyLocalReferrersIfEmpty(
     updatedAt?: string;
   }>
 ): Promise<void> {
-  const state = await readReferrerStore();
-  if (state.referrers.length > 0) return;
+  const { referrers } = await readReferrerStore();
+  if (referrers.length > 0) return;
   if (!rows.length) return;
   const now = new Date().toISOString();
   const used = new Set<string>();
@@ -367,8 +458,9 @@ export async function importLegacyLocalReferrersIfEmpty(
     });
   }
   if (nextRows.length === 0) return;
+  const allowed = await getReferrerAdminAllowedHrefsDb();
   await writeReferrerStore({
     referrers: nextRows,
-    referrerAdminAllowedHrefs: state.referrerAdminAllowedHrefs,
+    referrerAdminAllowedHrefs: allowed,
   });
 }

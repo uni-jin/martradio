@@ -1,12 +1,10 @@
-import { appendFileSync } from "node:fs";
-import { join } from "node:path";
-import { ensureMartradioDataDir } from "@/lib/martradioDataDir.server";
+import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
-export function appendSecurityAudit(entry: Record<string, unknown>): void {
+export async function appendSecurityAudit(entry: Record<string, unknown>): Promise<void> {
   try {
-    const logPath = join(ensureMartradioDataDir(), "security-audit.jsonl");
-    const line = JSON.stringify({ ...entry, at: new Date().toISOString() }) + "\n";
-    appendFileSync(logPath, line, "utf8");
+    const supabase = getSupabaseServerClient();
+    const at = new Date().toISOString();
+    await supabase.from("security_audit_events").insert({ payload: { ...entry, at } });
   } catch {
     // 감사 로그 실패로 API 응답을 막지 않음
   }

@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   if (!isValidPublicUserId(userId)) {
     return NextResponse.json({ error: "userId 형식이 올바르지 않습니다." }, { status: 400 });
   }
-  const sub = getSubscriptionStatusByUser(userId);
+  const sub = await getSubscriptionStatusByUser(userId);
   const approvalIso = new Date().toISOString();
   let amount = getPlanAmount(paidPlanId);
   let newBillingCycle = false;
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   }
 
   const orderId = `sub_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-  savePendingCheckout({
+  await savePendingCheckout({
     orderId,
     userId,
     planId: paidPlanId,

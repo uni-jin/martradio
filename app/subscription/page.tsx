@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getAdminProducts, getPaymentsForUser } from "@/lib/adminData";
+import {
+  fetchPlanCatalog,
+  fetchUserPaymentsFromApi,
+  getAdminProducts,
+  type AdminPayment,
+  type AdminProduct,
+} from "@/lib/adminData";
 import type { PlanId } from "@/lib/auth";
 import { getCurrentUser, getPlanLabel, refreshCurrentUser } from "@/lib/auth";
 import {
@@ -57,13 +63,14 @@ export default function SubscriptionPage() {
     nextPaymentDueAt?: string | null;
   } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  const [username, setUsername] = useState<string | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"request-cancel" | "revoke-cancel" | null>(null);
   const [isUpdatingCancelState, setIsUpdatingCancelState] = useState(false);
   const [isCancellingScheduled, setIsCancellingScheduled] = useState(false);
   const [flowDialog, setFlowDialog] = useState<SubscriptionPageFlow>(null);
   const [flowDialogBusy, setFlowDialogBusy] = useState(false);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
+  const [products, setProducts] = useState<AdminProduct[]>(() => getAdminProducts());
   const applySubscriptionSnapshot = (
     raw: unknown
   ): {
@@ -104,11 +111,20 @@ export default function SubscriptionPage() {
       const u = await refreshCurrentUser();
       if (!u) return;
       setUserId(u.id);
-      setUsername(u.email);
       setLocalPlanId(u.planId ?? "free");
       await refreshSubscriptionFromServer();
     })();
   }, [refreshSubscriptionFromServer]);
+
+  useEffect(() => {
+    if (!userId) return;
+    void (async () => {
+      await fetchPlanCatalog();
+      setProducts(getAdminProducts());
+      const p = await fetchUserPaymentsFromApi();
+      setPayments(p);
+    })();
+  }, [userId]);
 
   const runCancelScheduledReservation = useCallback(async (): Promise<
     { ok: true } | { ok: false; message: string }
@@ -203,13 +219,7 @@ export default function SubscriptionPage() {
     }
   };
 
-  const products = useMemo(() => getAdminProducts(), []);
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? id;
-
-  const payments = useMemo(() => {
-    if (!userId || !username) return [];
-    return getPaymentsForUser(userId, username);
-  }, [userId, username]);
 
   const effectivePlanId = useMemo(
     () => effectivePlanIdForSubscriptionUi(subscriptionFromApi, localPlanId, payments),

@@ -2,7 +2,12 @@
 
 import { useEffect, useLayoutEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getCurrentUser, refreshCurrentUser } from "@/lib/auth";
+import {
+  getCurrentUser,
+  getLastSessionErrorCode,
+  refreshCurrentUser,
+} from "@/lib/auth";
+import { fetchPlanCatalog } from "@/lib/adminData";
 import { fetchAdminSession, getCurrentAdmin } from "@/lib/adminAuth";
 import {
   adminPathAllowedForReferrer,
@@ -37,6 +42,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!mounted || isPublic) return;
+    void fetchPlanCatalog();
+  }, [mounted, isPublic]);
 
   useLayoutEffect(() => {
     if (!mounted) return;
@@ -82,7 +92,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     setAdminOk(null);
     void (async () => {
       const user = await refreshCurrentUser();
-      if (!user) router.replace("/login");
+      if (!user) {
+        const code = getLastSessionErrorCode();
+        if (code) router.replace(`/login?reason=${encodeURIComponent(code)}`);
+        else router.replace("/login");
+      }
     })();
   }, [mounted, p, isPublic, isAdmin, isAdminLogin, router]);
 

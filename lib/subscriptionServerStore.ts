@@ -1,6 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { ensureMartradioDataDir } from "@/lib/martradioDataDir.server";
+import { getSupabaseServerClient } from "@/lib/supabaseServer";
 import {
   addCalendarDaysYmd,
   dayOfMonthFromYmd,
@@ -10,7 +8,8 @@ import {
   startOfSeoulDayIso,
   toSeoulYmd,
 } from "@/lib/subscriptionPeriod";
-import { isPaidPlanDowngrade } from "@/lib/subscriptionPlans";
+import { recordAdminPaymentForSubscriptionCharge } from "@/lib/adminDataSupabase.server";
+import { getPlanAmount, isPaidPlanDowngrade } from "@/lib/subscriptionPlans";
 
 type PaidPlanId = "small" | "medium" | "large";
 
@@ -70,124 +69,38 @@ export type WebhookLog = {
   raw: unknown;
 };
 
-type PersistedState = {
-  subscriptions: Record<string, ServerSubscriptionStatus>;
-  pendingCheckouts: Record<string, PendingCheckout>;
-  webhookLogs: WebhookLog[];
-  orderToUser: Record<string, string>;
-  paymentToUser: Record<string, string>;
-  processedEventIds: string[];
-  billingMethods: Record<string, BillingMethod>;
-  billingChargeAttempts: Record<string, BillingChargeAttempt>;
-};
-
-/** 기본은 `process.cwd()/.martradio-data`. 서버리스에서 cwd가 읽기 전용이면 `MARTRADIO_DATA_DIR=/tmp/.martradio-data` 등 설정. */
-function subscriptionStorePath(): string {
-  return join(ensureMartradioDataDir(), "subscription-server-store.json");
-}
 const MAX_WEBHOOK_LOGS = 500;
 
-const subscriptions = new Map<string, ServerSubscriptionStatus>();
-const pendingCheckouts = new Map<string, PendingCheckout>();
-const webhookLogs: WebhookLog[] = [];
-const orderToUser = new Map<string, string>();
-const paymentToUser = new Map<string, string>();
-const processedEventIds = new Set<string>();
-const billingMethods = new Map<string, BillingMethod>();
-const billingChargeAttempts = new Map<string, BillingChargeAttempt>();
+function db() {
+  return getSupabaseServerClient();
+}
 
-function persistState(): void {
-  const STORE_PATH = subscriptionStorePath();
-  const state: PersistedState = {
-    subscriptions: Object.fromEntries(subscriptions.entries()),
-    pendingCheckouts: Object.fromEntries(pendingCheckouts.entries()),
-    webhookLogs: webhookLogs.slice(0, MAX_WEBHOOK_LOGS),
-    orderToUser: Object.fromEntries(orderToUser.entries()),
-    paymentToUser: Object.fromEntries(paymentToUser.entries()),
-    processedEventIds: Array.from(processedEventIds).slice(0, 2000),
-    billingMethods: Object.fromEntries(billingMethods.entries()),
-    billingChargeAttempts: Object.fromEntries(billingChargeAttempts.entries()),
+function rowToSubscription(row: Record<string, any>): ServerSubscriptionStatus {
+  return {
+    userId: row.user_id,
+    planId: row.plan_id,
+    cancelRequested: row.cancel_requested === true,
+    latestPaymentKey: row.latest_payment_key ?? null,
+    latestOrderId: row.latest_order_id ?? null,
+    currentPeriodStart: row.current_period_start ?? null,
+    currentPeriodEnd: row.current_period_end ?? null,
+    nextPaymentDueAt: row.next_payment_due_at ?? null,
+    billingDayOfMonth: row.billing_day_of_month ?? null,
+    scheduledPlanAfterPeriod: row.scheduled_plan_after_period ?? null,
+    updatedAt: row.updated_at,
   };
-  writeFileSync(STORE_PATH, JSON.stringify(state), "utf8");
 }
 
-function loadState(): void {
-  try {
-    const STORE_PATH = subscriptionStorePath();
-    if (!existsSync(STORE_PATH)) return;
-    const raw = readFileSync(STORE_PATH, "utf8");
-    if (!raw.trim()) return;
-    const parsed = JSON.parse(raw) as Partial<PersistedState>;
-    if (parsed.subscriptions && typeof parsed.subscriptions === "object") {
-      for (const [userId, status] of Object.entries(parsed.subscriptions)) {
-        subscriptions.set(userId, status);
-      }
-    }
-    if (parsed.pendingCheckouts && typeof parsed.pendingCheckouts === "object") {
-      for (const [orderId, checkout] of Object.entries(parsed.pendingCheckouts)) {
-        pendingCheckouts.set(orderId, checkout);
-      }
-    }
-    if (Array.isArray(parsed.webhookLogs)) {
-      webhookLogs.push(...parsed.webhookLogs.slice(0, MAX_WEBHOOK_LOGS));
-    }
-    if (parsed.orderToUser && typeof parsed.orderToUser === "object") {
-      for (const [orderId, userId] of Object.entries(parsed.orderToUser)) {
-        orderToUser.set(orderId, userId);
-      }
-    }
-    if (parsed.paymentToUser && typeof parsed.paymentToUser === "object") {
-      for (const [paymentKey, userId] of Object.entries(parsed.paymentToUser)) {
-        paymentToUser.set(paymentKey, userId);
-      }
-    }
-    if (Array.isArray(parsed.processedEventIds)) {
-      for (const eventId of parsed.processedEventIds) {
-        if (typeof eventId === "string" && eventId) processedEventIds.add(eventId);
-      }
-    }
-    if (parsed.billingMethods && typeof parsed.billingMethods === "object") {
-      for (const [userId, method] of Object.entries(parsed.billingMethods)) {
-        if (
-          typeof method?.customerKey === "string" &&
-          method.customerKey &&
-          typeof method?.billingKey === "string" &&
-          method.billingKey
-        ) {
-          billingMethods.set(userId, {
-            userId,
-            customerKey: method.customerKey,
-            billingKey: method.billingKey,
-            updatedAt:
-              typeof method.updatedAt === "string" && method.updatedAt ? method.updatedAt : new Date().toISOString(),
-          });
-        }
-      }
-    }
-    if (parsed.billingChargeAttempts && typeof parsed.billingChargeAttempts === "object") {
-      for (const [userId, attempt] of Object.entries(parsed.billingChargeAttempts)) {
-        if (typeof attempt?.dueAt !== "string" || !attempt.dueAt) continue;
-        billingChargeAttempts.set(userId, {
-          userId,
-          dueAt: attempt.dueAt,
-          primaryFailedAt:
-            typeof attempt.primaryFailedAt === "string" ? attempt.primaryFailedAt : null,
-          retryFailedAt:
-            typeof attempt.retryFailedAt === "string" ? attempt.retryFailedAt : null,
-          lastError: typeof attempt.lastError === "string" ? attempt.lastError : null,
-          updatedAt:
-            typeof attempt.updatedAt === "string" && attempt.updatedAt
-              ? attempt.updatedAt
-              : new Date().toISOString(),
-        });
-      }
-    }
-  } catch {
-    // ignore invalid persisted file
-  }
+function rowToPendingCheckout(row: Record<string, any>): PendingCheckout {
+  return {
+    orderId: row.order_id,
+    userId: row.user_id,
+    planId: row.plan_id,
+    amount: Number(row.amount),
+    createdAt: row.created_at,
+    newBillingCycle: row.new_billing_cycle === true,
+  };
 }
-
-loadState();
 
 function migrateLegacySubscription(s: ServerSubscriptionStatus): ServerSubscriptionStatus {
   let row: ServerSubscriptionStatus = { ...s };
@@ -215,129 +128,222 @@ function migrateLegacySubscription(s: ServerSubscriptionStatus): ServerSubscript
   };
 }
 
-function migrateAllSubscriptions(): void {
-  let changed = false;
-  for (const [userId, row] of subscriptions.entries()) {
-    const next = migrateLegacySubscription(row);
-    if (
-      next.nextPaymentDueAt !== row.nextPaymentDueAt ||
-      next.currentPeriodEnd !== row.currentPeriodEnd ||
-      next.billingDayOfMonth !== row.billingDayOfMonth
-    ) {
-      subscriptions.set(userId, next);
-      changed = true;
-    }
+async function getSubscriptionRow(userId: string): Promise<ServerSubscriptionStatus | null> {
+  const found = await db()
+    .from("subscription_statuses")
+    .select("*")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (found.error || !found.data) return null;
+  return migrateLegacySubscription(rowToSubscription(found.data));
+}
+
+async function upsertPaymentLink(params: {
+  userId: string;
+  orderId?: string | null;
+  paymentKey?: string | null;
+}): Promise<void> {
+  if (!params.orderId && !params.paymentKey) return;
+  const now = new Date().toISOString();
+  if (params.orderId) {
+    await db().from("subscription_payment_links").upsert(
+      {
+        order_id: params.orderId,
+        user_id: params.userId,
+        payment_key: params.paymentKey ?? null,
+        created_at: now,
+      },
+      { onConflict: "order_id" }
+    );
   }
-  if (changed) persistState();
+  if (params.paymentKey) {
+    await db().from("subscription_payment_links").upsert(
+      {
+        payment_key: params.paymentKey,
+        user_id: params.userId,
+        order_id: params.orderId ?? null,
+        created_at: now,
+      },
+      { onConflict: "payment_key" }
+    );
+  }
 }
 
-migrateAllSubscriptions();
-
-export function savePendingCheckout(item: PendingCheckout): void {
-  pendingCheckouts.set(item.orderId, item);
-  persistState();
+export async function savePendingCheckout(item: PendingCheckout): Promise<void> {
+  await db().from("subscription_pending_checkouts").upsert(
+    {
+      order_id: item.orderId,
+      user_id: item.userId,
+      plan_id: item.planId,
+      amount: item.amount,
+      created_at: item.createdAt,
+      new_billing_cycle: item.newBillingCycle === true,
+    },
+    { onConflict: "order_id" }
+  );
 }
 
-export function getPendingCheckout(orderId: string): PendingCheckout | null {
-  return pendingCheckouts.get(orderId) ?? null;
+export async function getPendingCheckout(orderId: string): Promise<PendingCheckout | null> {
+  const found = await db()
+    .from("subscription_pending_checkouts")
+    .select("*")
+    .eq("order_id", orderId)
+    .limit(1)
+    .maybeSingle();
+  if (found.error || !found.data) return null;
+  return rowToPendingCheckout(found.data);
 }
 
-export function deletePendingCheckout(orderId: string): void {
-  pendingCheckouts.delete(orderId);
-  persistState();
+export async function deletePendingCheckout(orderId: string): Promise<void> {
+  await db().from("subscription_pending_checkouts").delete().eq("order_id", orderId);
 }
 
-export function setSubscriptionBillingMethod(params: {
+export async function setSubscriptionBillingMethod(params: {
   userId: string;
   customerKey: string;
   billingKey: string;
-}): void {
-  billingMethods.set(params.userId, {
-    userId: params.userId,
-    customerKey: params.customerKey,
-    billingKey: params.billingKey,
-    updatedAt: new Date().toISOString(),
-  });
-  persistState();
+}): Promise<void> {
+  await db().from("subscription_billing_methods").upsert(
+    {
+      user_id: params.userId,
+      customer_key: params.customerKey,
+      billing_key: params.billingKey,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
 }
 
-export function getSubscriptionBillingMethod(userId: string): BillingMethod | null {
-  return billingMethods.get(userId) ?? null;
+export async function getSubscriptionBillingMethod(userId: string): Promise<BillingMethod | null> {
+  const found = await db()
+    .from("subscription_billing_methods")
+    .select("*")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (found.error || !found.data) return null;
+  return {
+    userId: found.data.user_id,
+    customerKey: found.data.customer_key,
+    billingKey: found.data.billing_key,
+    updatedAt: found.data.updated_at,
+  };
 }
 
-export function hasPrimaryBillingFailure(userId: string, dueAt: string): boolean {
-  const a = billingChargeAttempts.get(userId);
-  return Boolean(a && a.dueAt === dueAt && a.primaryFailedAt && !a.retryFailedAt);
+export async function hasPrimaryBillingFailure(userId: string, dueAt: string): Promise<boolean> {
+  const found = await db()
+    .from("subscription_billing_charge_attempts")
+    .select("primary_failed_at,retry_failed_at,due_at")
+    .eq("user_id", userId)
+    .eq("due_at", dueAt)
+    .limit(1)
+    .maybeSingle();
+  if (found.error || !found.data) return false;
+  return Boolean(found.data.primary_failed_at && !found.data.retry_failed_at);
 }
 
-export function markPrimaryBillingFailure(userId: string, dueAt: string, errorMessage: string): void {
-  billingChargeAttempts.set(userId, {
-    userId,
-    dueAt,
-    primaryFailedAt: new Date().toISOString(),
-    retryFailedAt: null,
-    lastError: errorMessage,
-    updatedAt: new Date().toISOString(),
-  });
-  persistState();
+export async function markPrimaryBillingFailure(
+  userId: string,
+  dueAt: string,
+  errorMessage: string
+): Promise<void> {
+  await db().from("subscription_billing_charge_attempts").upsert(
+    {
+      user_id: userId,
+      due_at: dueAt,
+      primary_failed_at: new Date().toISOString(),
+      retry_failed_at: null,
+      last_error: errorMessage,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
 }
 
-export function markRetryBillingFailure(userId: string, dueAt: string, errorMessage: string): void {
-  const prev = billingChargeAttempts.get(userId);
-  billingChargeAttempts.set(userId, {
-    userId,
-    dueAt,
-    primaryFailedAt: prev?.primaryFailedAt ?? new Date().toISOString(),
-    retryFailedAt: new Date().toISOString(),
-    lastError: errorMessage,
-    updatedAt: new Date().toISOString(),
-  });
-  persistState();
+export async function markRetryBillingFailure(
+  userId: string,
+  dueAt: string,
+  errorMessage: string
+): Promise<void> {
+  const prev = await db()
+    .from("subscription_billing_charge_attempts")
+    .select("primary_failed_at")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  await db().from("subscription_billing_charge_attempts").upsert(
+    {
+      user_id: userId,
+      due_at: dueAt,
+      primary_failed_at: prev.data?.primary_failed_at ?? new Date().toISOString(),
+      retry_failed_at: new Date().toISOString(),
+      last_error: errorMessage,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
 }
 
-export function clearBillingFailureAttempt(userId: string): void {
-  if (!billingChargeAttempts.has(userId)) return;
-  billingChargeAttempts.delete(userId);
-  persistState();
+export async function clearBillingFailureAttempt(userId: string): Promise<void> {
+  await db().from("subscription_billing_charge_attempts").delete().eq("user_id", userId);
 }
 
-export function getDueRecurringBillingTargets(nowIso: string): Array<{
-  userId: string;
-  planId: PaidPlanId;
-  customerKey: string;
-  billingKey: string;
-  nextPaymentDueAt: string;
-}> {
-  const nowMs = new Date(nowIso).getTime();
-  if (!Number.isFinite(nowMs)) return [];
-  const due: Array<{
+export async function getDueRecurringBillingTargets(nowIso: string): Promise<
+  Array<{
     userId: string;
     planId: PaidPlanId;
     customerKey: string;
     billingKey: string;
     nextPaymentDueAt: string;
+  }>
+> {
+  const subsRes = await db()
+    .from("subscription_statuses")
+    .select("user_id,plan_id,cancel_requested,next_payment_due_at,scheduled_plan_after_period")
+    .in("plan_id", ["small", "medium", "large"])
+    .eq("cancel_requested", false)
+    .lte("next_payment_due_at", nowIso);
+  if (subsRes.error) return [];
+  const rows = subsRes.data ?? [];
+  if (rows.length === 0) return [];
+  const userIds = rows.map((x) => x.user_id as string);
+  const billingRes = await db()
+    .from("subscription_billing_methods")
+    .select("user_id,customer_key,billing_key")
+    .in("user_id", userIds);
+  if (billingRes.error) return [];
+  const methodByUser = new Map<string, { customerKey: string; billingKey: string }>();
+  for (const row of billingRes.data ?? []) {
+    methodByUser.set(row.user_id, {
+      customerKey: row.customer_key,
+      billingKey: row.billing_key,
+    });
+  }
+  const due: Array<{
+  userId: string;
+  planId: PaidPlanId;
+  customerKey: string;
+  billingKey: string;
+  nextPaymentDueAt: string;
   }> = [];
-  for (const [userId, sub] of subscriptions.entries()) {
-    if (sub.planId !== "small" && sub.planId !== "medium" && sub.planId !== "large") continue;
-    if (sub.cancelRequested) continue;
-    if (!sub.nextPaymentDueAt) continue;
-    const dueMs = new Date(sub.nextPaymentDueAt).getTime();
-    if (!Number.isFinite(dueMs) || dueMs > nowMs) continue;
-    const method = billingMethods.get(userId);
+  for (const sub of rows) {
+    const userId = sub.user_id as string;
+    const method = methodByUser.get(userId);
     if (!method) continue;
-    const billPlanId = sub.scheduledPlanAfterPeriod ?? sub.planId;
+    const billPlanId = (sub.scheduled_plan_after_period ?? sub.plan_id) as PaidPlanId;
     due.push({
       userId,
       planId: billPlanId,
       customerKey: method.customerKey,
       billingKey: method.billingKey,
-      nextPaymentDueAt: sub.nextPaymentDueAt,
+      nextPaymentDueAt: sub.next_payment_due_at as string,
     });
   }
   return due;
 }
 
-export function upsertSubscriptionAfterConfirm(params: {
+export async function upsertSubscriptionAfterConfirm(params: {
   userId: string;
   planId: PaidPlanId;
   paymentKey: string;
@@ -345,12 +351,16 @@ export function upsertSubscriptionAfterConfirm(params: {
   approvedAt: string;
   /** 업그레이드: 최초 구독과 동일하게 승인 시각 기준 새 주기(만료일·다음 결제일). */
   newBillingCycle?: boolean;
-}): ServerSubscriptionStatus {
-  const prev = subscriptions.get(params.userId);
+  /** 실제 청구 금액(원). 없으면 플랜 기본 월 요금으로 관리자 결제 기록. */
+  chargedAmountKrw?: number;
+}): Promise<ServerSubscriptionStatus> {
+  const prev = await getSubscriptionRow(params.userId);
   if (prev?.latestPaymentKey && prev.latestPaymentKey === params.paymentKey) {
-    orderToUser.set(params.orderId, params.userId);
-    paymentToUser.set(params.paymentKey, params.userId);
-    persistState();
+    await upsertPaymentLink({
+      userId: params.userId,
+      orderId: params.orderId,
+      paymentKey: params.paymentKey,
+    });
     return prev;
   }
 
@@ -388,15 +398,49 @@ export function upsertSubscriptionAfterConfirm(params: {
     billingDayOfMonth: bounds.billingDayOfMonth,
     updatedAt: new Date().toISOString(),
   };
-  subscriptions.set(params.userId, status);
-  orderToUser.set(params.orderId, params.userId);
-  paymentToUser.set(params.paymentKey, params.userId);
-  persistState();
+  await db().from("subscription_statuses").upsert(
+    {
+      user_id: status.userId,
+      plan_id: status.planId,
+      cancel_requested: status.cancelRequested,
+      scheduled_plan_after_period: status.scheduledPlanAfterPeriod ?? null,
+      latest_payment_key: status.latestPaymentKey ?? null,
+      latest_order_id: status.latestOrderId ?? null,
+      current_period_start: status.currentPeriodStart ?? null,
+      current_period_end: status.currentPeriodEnd ?? null,
+      next_payment_due_at: status.nextPaymentDueAt ?? null,
+      billing_day_of_month: status.billingDayOfMonth ?? null,
+      updated_at: status.updatedAt,
+    },
+    { onConflict: "user_id" }
+  );
+  await upsertPaymentLink({
+    userId: params.userId,
+    orderId: params.orderId,
+    paymentKey: params.paymentKey,
+  });
+  const chargeKrw =
+    typeof params.chargedAmountKrw === "number" && Number.isFinite(params.chargedAmountKrw)
+      ? Math.floor(params.chargedAmountKrw)
+      : getPlanAmount(params.planId);
+  if (chargeKrw > 0) {
+    void recordAdminPaymentForSubscriptionCharge({
+      userId: params.userId,
+      planId: params.planId,
+      orderId: params.orderId,
+      paymentKey: params.paymentKey,
+      amountKrw: chargeKrw,
+      paidAtIso: approvalIso,
+    }).catch(() => {});
+  }
   return status;
 }
 
-export function setCancelRequested(userId: string, cancelRequested: boolean): ServerSubscriptionStatus {
-  const prev = subscriptions.get(userId);
+export async function setCancelRequested(
+  userId: string,
+  cancelRequested: boolean
+): Promise<ServerSubscriptionStatus> {
+  const prev = await getSubscriptionRow(userId);
   const next: ServerSubscriptionStatus = {
     userId,
     planId: prev?.planId ?? "free",
@@ -410,17 +454,31 @@ export function setCancelRequested(userId: string, cancelRequested: boolean): Se
     billingDayOfMonth: prev?.billingDayOfMonth ?? null,
     updatedAt: new Date().toISOString(),
   };
-  subscriptions.set(userId, next);
-  persistState();
+  await db().from("subscription_statuses").upsert(
+    {
+      user_id: next.userId,
+      plan_id: next.planId,
+      cancel_requested: next.cancelRequested,
+      scheduled_plan_after_period: next.scheduledPlanAfterPeriod ?? null,
+      latest_payment_key: next.latestPaymentKey ?? null,
+      latest_order_id: next.latestOrderId ?? null,
+      current_period_start: next.currentPeriodStart ?? null,
+      current_period_end: next.currentPeriodEnd ?? null,
+      next_payment_due_at: next.nextPaymentDueAt ?? null,
+      billing_day_of_month: next.billingDayOfMonth ?? null,
+      updated_at: next.updatedAt,
+    },
+    { onConflict: "user_id" }
+  );
   return migrateLegacySubscription(next);
 }
 
 /** 다음 결제 주기부터 하위 플랜 적용 예약. 해지 신청이 있으면 해제한다. */
-export function setScheduledPlanAfterCurrentPeriod(
+export async function setScheduledPlanAfterCurrentPeriod(
   userId: string,
   targetPlanId: PaidPlanId
-): ServerSubscriptionStatus {
-  const prev = subscriptions.get(userId);
+): Promise<ServerSubscriptionStatus> {
+  const prev = await getSubscriptionRow(userId);
   if (!prev || (prev.planId !== "small" && prev.planId !== "medium" && prev.planId !== "large")) {
     throw new Error("활성 유료 구독이 없습니다.");
   }
@@ -436,14 +494,28 @@ export function setScheduledPlanAfterCurrentPeriod(
     cancelRequested: false,
     updatedAt: new Date().toISOString(),
   };
-  subscriptions.set(userId, next);
-  persistState();
+  await db().from("subscription_statuses").upsert(
+    {
+      user_id: next.userId,
+      plan_id: next.planId,
+      cancel_requested: next.cancelRequested,
+      scheduled_plan_after_period: next.scheduledPlanAfterPeriod ?? null,
+      latest_payment_key: next.latestPaymentKey ?? null,
+      latest_order_id: next.latestOrderId ?? null,
+      current_period_start: next.currentPeriodStart ?? null,
+      current_period_end: next.currentPeriodEnd ?? null,
+      next_payment_due_at: next.nextPaymentDueAt ?? null,
+      billing_day_of_month: next.billingDayOfMonth ?? null,
+      updated_at: next.updatedAt,
+    },
+    { onConflict: "user_id" }
+  );
   return migrateLegacySubscription(next);
 }
 
 /** 다음 결제일부터 적용 예정이던 하위 플랜 예약만 취소한다. */
-export function cancelScheduledPlanChange(userId: string): ServerSubscriptionStatus {
-  const prev = subscriptions.get(userId);
+export async function cancelScheduledPlanChange(userId: string): Promise<ServerSubscriptionStatus> {
+  const prev = await getSubscriptionRow(userId);
   if (!prev) {
     throw new Error("구독 정보를 찾을 수 없습니다.");
   }
@@ -458,67 +530,114 @@ export function cancelScheduledPlanChange(userId: string): ServerSubscriptionSta
     scheduledPlanAfterPeriod: null,
     updatedAt: new Date().toISOString(),
   };
-  subscriptions.set(userId, next);
-  persistState();
+  await db().from("subscription_statuses").upsert(
+    {
+      user_id: next.userId,
+      plan_id: next.planId,
+      cancel_requested: next.cancelRequested,
+      scheduled_plan_after_period: null,
+      latest_payment_key: next.latestPaymentKey ?? null,
+      latest_order_id: next.latestOrderId ?? null,
+      current_period_start: next.currentPeriodStart ?? null,
+      current_period_end: next.currentPeriodEnd ?? null,
+      next_payment_due_at: next.nextPaymentDueAt ?? null,
+      billing_day_of_month: next.billingDayOfMonth ?? null,
+      updated_at: next.updatedAt,
+    },
+    { onConflict: "user_id" }
+  );
   return migrateLegacySubscription(next);
 }
 
-export function getSubscriptionStatusByUser(userId: string): ServerSubscriptionStatus | null {
-  const row = subscriptions.get(userId);
+export async function getSubscriptionStatusByUser(userId: string): Promise<ServerSubscriptionStatus | null> {
+  const row = await getSubscriptionRow(userId);
   return row ? migrateLegacySubscription(row) : null;
 }
 
 /** 관리자 목록 등: 서버에 저장된 구독 스냅샷 전체 */
-export function getAllSubscriptionStatuses(): ServerSubscriptionStatus[] {
-  return Array.from(subscriptions.values()).map((row) => migrateLegacySubscription(row));
+export async function getAllSubscriptionStatuses(): Promise<ServerSubscriptionStatus[]> {
+  const res = await db().from("subscription_statuses").select("*");
+  if (res.error) return [];
+  return (res.data ?? []).map((row) => migrateLegacySubscription(rowToSubscription(row)));
 }
 
-export function applyPaymentStatusWebhook(params: {
+export async function applyPaymentStatusWebhook(params: {
   eventId?: string;
   orderId?: string;
   paymentKey?: string;
   status?: string;
   approvedAt?: string;
-}): ServerSubscriptionStatus | null {
-  if (params.eventId && processedEventIds.has(params.eventId)) {
+}): Promise<ServerSubscriptionStatus | null> {
+  if (params.eventId && (await isWebhookEventProcessed(params.eventId))) {
     return null;
   }
   const st = (params.status ?? "").toUpperCase();
-  const userIdByOrder = params.orderId ? orderToUser.get(params.orderId) : undefined;
-  const userIdByPayment = params.paymentKey ? paymentToUser.get(params.paymentKey) : undefined;
+  const userIdByOrder = params.orderId
+    ? (
+        await db()
+          .from("subscription_payment_links")
+          .select("user_id")
+          .eq("order_id", params.orderId)
+          .limit(1)
+          .maybeSingle()
+      ).data?.user_id
+    : undefined;
+  const userIdByPayment = params.paymentKey
+    ? (
+        await db()
+          .from("subscription_payment_links")
+          .select("user_id")
+          .eq("payment_key", params.paymentKey)
+          .limit(1)
+          .maybeSingle()
+      ).data?.user_id
+    : undefined;
   const targetUserId = userIdByOrder ?? userIdByPayment;
 
   // If we receive DONE before confirm flow finalized, try pending checkout mapping.
   if (!targetUserId && st === "DONE" && params.orderId) {
-    const pending = getPendingCheckout(params.orderId);
+    const pending = await getPendingCheckout(params.orderId);
     if (pending) {
       const approvedAt = params.approvedAt ?? new Date().toISOString();
-      const next = upsertSubscriptionAfterConfirm({
+      const next = await upsertSubscriptionAfterConfirm({
         userId: pending.userId,
         planId: pending.planId,
         paymentKey: params.paymentKey ?? `wh_${params.orderId}`,
         orderId: pending.orderId,
         approvedAt,
         newBillingCycle: pending.newBillingCycle === true,
+        chargedAmountKrw: pending.amount,
       });
-      deletePendingCheckout(params.orderId);
+      await deletePendingCheckout(params.orderId);
       if (params.eventId) {
-        processedEventIds.add(params.eventId);
-        persistState();
+        await db().from("subscription_processed_events").upsert(
+          {
+            event_id: params.eventId,
+            processed_at: new Date().toISOString(),
+          },
+          { onConflict: "event_id" }
+        );
       }
       return next;
     }
   }
 
   if (!targetUserId) return null;
-  const prev = subscriptions.get(targetUserId);
+  const prev = await getSubscriptionRow(targetUserId);
   if (!prev) return null;
 
   if (st === "DONE") {
     const pk = params.paymentKey?.trim();
     if (pk && prev.latestPaymentKey && prev.latestPaymentKey === pk) {
-      if (params.eventId) processedEventIds.add(params.eventId);
-      persistState();
+      if (params.eventId) {
+        await db().from("subscription_processed_events").upsert(
+          {
+            event_id: params.eventId,
+            processed_at: new Date().toISOString(),
+          },
+          { onConflict: "event_id" }
+        );
+      }
       return prev;
     }
 
@@ -554,11 +673,36 @@ export function applyPaymentStatusWebhook(params: {
       latestPaymentKey: params.paymentKey ?? prev.latestPaymentKey ?? null,
       updatedAt: new Date().toISOString(),
     };
-    subscriptions.set(targetUserId, next);
-    if (next.latestOrderId) orderToUser.set(next.latestOrderId, targetUserId);
-    if (next.latestPaymentKey) paymentToUser.set(next.latestPaymentKey, targetUserId);
-    if (params.eventId) processedEventIds.add(params.eventId);
-    persistState();
+    await db().from("subscription_statuses").upsert(
+      {
+        user_id: next.userId,
+        plan_id: next.planId,
+        cancel_requested: next.cancelRequested,
+        scheduled_plan_after_period: next.scheduledPlanAfterPeriod ?? null,
+        latest_payment_key: next.latestPaymentKey ?? null,
+        latest_order_id: next.latestOrderId ?? null,
+        current_period_start: next.currentPeriodStart ?? null,
+        current_period_end: next.currentPeriodEnd ?? null,
+        next_payment_due_at: next.nextPaymentDueAt ?? null,
+        billing_day_of_month: next.billingDayOfMonth ?? null,
+        updated_at: next.updatedAt,
+      },
+      { onConflict: "user_id" }
+    );
+    await upsertPaymentLink({
+      userId: targetUserId,
+      orderId: next.latestOrderId ?? null,
+      paymentKey: next.latestPaymentKey ?? null,
+    });
+    if (params.eventId) {
+      await db().from("subscription_processed_events").upsert(
+        {
+          event_id: params.eventId,
+          processed_at: new Date().toISOString(),
+        },
+        { onConflict: "event_id" }
+      );
+    }
     return next;
   }
 
@@ -574,36 +718,102 @@ export function applyPaymentStatusWebhook(params: {
       billingDayOfMonth: null,
       updatedAt: new Date().toISOString(),
     };
-    subscriptions.set(targetUserId, next);
-    billingMethods.delete(targetUserId);
-    billingChargeAttempts.delete(targetUserId);
-    if (params.eventId) processedEventIds.add(params.eventId);
-    persistState();
+    await db().from("subscription_statuses").upsert(
+      {
+        user_id: next.userId,
+        plan_id: "free",
+        cancel_requested: false,
+        scheduled_plan_after_period: null,
+        latest_payment_key: next.latestPaymentKey ?? null,
+        latest_order_id: next.latestOrderId ?? null,
+        current_period_start: null,
+        current_period_end: null,
+        next_payment_due_at: null,
+        billing_day_of_month: null,
+        updated_at: next.updatedAt,
+      },
+      { onConflict: "user_id" }
+    );
+    await db().from("subscription_billing_methods").delete().eq("user_id", targetUserId);
+    await db().from("subscription_billing_charge_attempts").delete().eq("user_id", targetUserId);
+    if (params.eventId) {
+      await db().from("subscription_processed_events").upsert(
+        {
+          event_id: params.eventId,
+          processed_at: new Date().toISOString(),
+        },
+        { onConflict: "event_id" }
+      );
+    }
     return next;
   }
 
   if (params.eventId) {
-    processedEventIds.add(params.eventId);
-    persistState();
+    await db().from("subscription_processed_events").upsert(
+      {
+        event_id: params.eventId,
+        processed_at: new Date().toISOString(),
+      },
+      { onConflict: "event_id" }
+    );
   }
   return prev;
 }
 
-export function appendWebhookLog(log: WebhookLog): void {
-  webhookLogs.unshift(log);
-  if (webhookLogs.length > MAX_WEBHOOK_LOGS) webhookLogs.length = MAX_WEBHOOK_LOGS;
-  persistState();
+export async function appendWebhookLog(log: WebhookLog): Promise<void> {
+  await db().from("subscription_webhook_logs").insert({
+    received_at: log.receivedAt,
+    event_type: log.eventType,
+    order_id: log.orderId ?? null,
+    payment_key: log.paymentKey ?? null,
+    status: log.status ?? null,
+    event_id: log.eventId ?? null,
+    duplicate: log.duplicate === true,
+    processed: log.processed === true,
+    raw: log.raw ?? {},
+  });
+  const old = await db()
+    .from("subscription_webhook_logs")
+    .select("id")
+    .order("id", { ascending: false })
+    .range(MAX_WEBHOOK_LOGS, MAX_WEBHOOK_LOGS + 2000);
+  if (!old.error && old.data && old.data.length > 0) {
+    const ids = old.data.map((row) => row.id);
+    await db().from("subscription_webhook_logs").delete().in("id", ids);
+  }
 }
 
-export function getWebhookLogs(): WebhookLog[] {
-  return webhookLogs.slice();
+export async function getWebhookLogs(): Promise<WebhookLog[]> {
+  const res = await db()
+    .from("subscription_webhook_logs")
+    .select("*")
+    .order("id", { ascending: false })
+    .limit(MAX_WEBHOOK_LOGS);
+  if (res.error || !res.data) return [];
+  return res.data.map((row) => ({
+    receivedAt: row.received_at,
+    eventType: row.event_type,
+    orderId: row.order_id ?? undefined,
+    paymentKey: row.payment_key ?? undefined,
+    status: row.status ?? undefined,
+    eventId: row.event_id ?? undefined,
+    duplicate: row.duplicate === true,
+    processed: row.processed === true,
+    raw: row.raw ?? {},
+  }));
 }
 
-export function isWebhookEventProcessed(eventId: string): boolean {
-  return processedEventIds.has(eventId);
+export async function isWebhookEventProcessed(eventId: string): Promise<boolean> {
+  const found = await db()
+    .from("subscription_processed_events")
+    .select("event_id")
+    .eq("event_id", eventId)
+    .limit(1)
+    .maybeSingle();
+  return Boolean(found.data);
 }
 
-export function adminOverrideSubscription(params: {
+export async function adminOverrideSubscription(params: {
   userId: string;
   planId?: PaidPlanId | "free";
   cancelRequested?: boolean;
@@ -613,8 +823,8 @@ export function adminOverrideSubscription(params: {
   billingDayOfMonth?: number | null;
   latestOrderId?: string | null;
   latestPaymentKey?: string | null;
-}): ServerSubscriptionStatus {
-  const prev = subscriptions.get(params.userId);
+}): Promise<ServerSubscriptionStatus> {
+  const prev = await getSubscriptionRow(params.userId);
   const next: ServerSubscriptionStatus = {
     userId: params.userId,
     planId: params.planId ?? prev?.planId ?? "free",
@@ -635,19 +845,38 @@ export function adminOverrideSubscription(params: {
   };
   const finalNext =
     next.planId === "free" ? { ...next, scheduledPlanAfterPeriod: null } : next;
-  subscriptions.set(params.userId, finalNext);
+  await db().from("subscription_statuses").upsert(
+    {
+      user_id: finalNext.userId,
+      plan_id: finalNext.planId,
+      cancel_requested: finalNext.cancelRequested,
+      scheduled_plan_after_period: finalNext.scheduledPlanAfterPeriod ?? null,
+      latest_payment_key: finalNext.latestPaymentKey ?? null,
+      latest_order_id: finalNext.latestOrderId ?? null,
+      current_period_start: finalNext.currentPeriodStart ?? null,
+      current_period_end: finalNext.currentPeriodEnd ?? null,
+      next_payment_due_at: finalNext.nextPaymentDueAt ?? null,
+      billing_day_of_month: finalNext.billingDayOfMonth ?? null,
+      updated_at: finalNext.updatedAt,
+    },
+    { onConflict: "user_id" }
+  );
   if (finalNext.planId === "free") {
-    billingMethods.delete(finalNext.userId);
-    billingChargeAttempts.delete(finalNext.userId);
+    await db().from("subscription_billing_methods").delete().eq("user_id", finalNext.userId);
+    await db().from("subscription_billing_charge_attempts").delete().eq("user_id", finalNext.userId);
   }
-  if (finalNext.latestOrderId) orderToUser.set(finalNext.latestOrderId, finalNext.userId);
-  if (finalNext.latestPaymentKey) paymentToUser.set(finalNext.latestPaymentKey, finalNext.userId);
-  persistState();
+  await upsertPaymentLink({
+    userId: finalNext.userId,
+    orderId: finalNext.latestOrderId ?? null,
+    paymentKey: finalNext.latestPaymentKey ?? null,
+  });
   return finalNext;
 }
 
-export function terminateSubscriptionAfterBillingFailure(userId: string): ServerSubscriptionStatus | null {
-  const prev = subscriptions.get(userId);
+export async function terminateSubscriptionAfterBillingFailure(
+  userId: string
+): Promise<ServerSubscriptionStatus | null> {
+  const prev = await getSubscriptionRow(userId);
   if (!prev) return null;
   const next: ServerSubscriptionStatus = {
     ...prev,
@@ -660,10 +889,24 @@ export function terminateSubscriptionAfterBillingFailure(userId: string): Server
     billingDayOfMonth: null,
     updatedAt: new Date().toISOString(),
   };
-  subscriptions.set(userId, next);
-  billingMethods.delete(userId);
-  billingChargeAttempts.delete(userId);
-  persistState();
+  await db().from("subscription_statuses").upsert(
+    {
+      user_id: next.userId,
+      plan_id: "free",
+      cancel_requested: false,
+      scheduled_plan_after_period: null,
+      latest_payment_key: next.latestPaymentKey ?? null,
+      latest_order_id: next.latestOrderId ?? null,
+      current_period_start: null,
+      current_period_end: null,
+      next_payment_due_at: null,
+      billing_day_of_month: null,
+      updated_at: next.updatedAt,
+    },
+    { onConflict: "user_id" }
+  );
+  await db().from("subscription_billing_methods").delete().eq("user_id", userId);
+  await db().from("subscription_billing_charge_attempts").delete().eq("user_id", userId);
   return next;
 }
 

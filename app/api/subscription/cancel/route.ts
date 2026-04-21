@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "userId 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
-  const subscription = setCancelRequested(uid, body.cancelRequested);
+  const subscription = await setCancelRequested(uid, body.cancelRequested);
   return NextResponse.json({
     ok: true,
     userId: uid,

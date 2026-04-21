@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "billingDayOfMonth는 1–31 정수 또는 null이어야 합니다." }, { status: 400 });
   }
 
-  const subscription = adminOverrideSubscription({
+  const subscription = await adminOverrideSubscription({
     userId: body.userId.trim(),
     planId: normalizedPlanId,
     cancelRequested: body.cancelRequested as boolean | undefined,
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
         : (body.latestPaymentKey as string | null),
   });
 
-  appendSecurityAudit({
+  await appendSecurityAudit({
     type: "admin_subscription_override",
     admin: auth.username,
     targetUserId: body.userId.trim(),

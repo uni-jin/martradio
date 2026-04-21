@@ -2,15 +2,18 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { login } from "@/lib/auth";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getSessionErrorMessage, login, type UserSessionErrorCode } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const reason = (searchParams.get("reason") as UserSessionErrorCode | null) ?? null;
+  const reasonMessage = reason ? getSessionErrorMessage(reason) : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,7 +58,9 @@ export default function LoginPage() {
                 autoComplete="current-password"
               />
             </div>
-            {error && <p className="text-base text-red-600">{error}</p>}
+            {(error || reasonMessage) && (
+              <p className="text-base text-red-600">{error ?? reasonMessage}</p>
+            )}
             <button
               type="submit"
               disabled={loading}

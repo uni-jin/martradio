@@ -8,8 +8,8 @@ import {
 } from "@/lib/promoScriptPrompt";
 import { getPromoScriptTemplateForEdit } from "@/lib/promoScriptPromptStore.server";
 
-function buildPrompt(rawText: string): string {
-  const { template } = getPromoScriptTemplateForEdit();
+async function buildPrompt(rawText: string): Promise<string> {
+  const { template } = await getPromoScriptTemplateForEdit();
   const err = validatePromoScriptTemplate(template);
   const effective = err ? DEFAULT_PROMO_SCRIPT_TEMPLATE : template;
   return applyPromoScriptTemplate(effective, rawText);
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   const client = new OpenAI({ apiKey });
 
   try {
-    const prompt = buildPrompt(rawText);
+    const prompt = await buildPrompt(rawText);
     const response = await client.responses.create({
       model,
       input: prompt,

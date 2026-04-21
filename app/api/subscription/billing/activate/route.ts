@@ -27,6 +27,22 @@ function newRecurringOrderId(userId: string): string {
   return `rec_${userId}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 }
 
+async function fetchJsonWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<{ response: Response; data: unknown }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    const data = await response.json().catch(() => ({}));
+    return { response, data };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function chargeUpgradeOrInitialWithBillingKey(params: {
   userId: string;
   planId: "small" | "medium" | "large";
@@ -37,7 +53,7 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
   | { ok: true; paymentKey: string; orderId: string; amount: number; approvedAt: string; newBillingCycle: boolean }
   | { ok: false; status: number; error: string }
 > {
-  const prev = getSubscriptionStatusByUser(params.userId);
+  const prev = await getSubscriptionStatusByUser(params.userId);
   const approvalIso = new Date().toISOString();
   let amount = getPlanAmount(params.planId);
   let newBillingCycle = false;
@@ -56,7 +72,7 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
   }
 
   const orderId = newRecurringOrderId(params.userId);
-  savePendingCheckout({
+  await savePendingCheckout({
     orderId,
     userId: params.userId,
     planId: params.planId,
@@ -68,15 +84,16 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
   if (amount < 1) {
     const approvedAt = approvalIso;
     const noChargeKey = `upgrade_nocharge_${orderId}`;
-    upsertSubscriptionAfterConfirm({
+    await upsertSubscriptionAfterConfirm({
       userId: params.userId,
       planId: params.planId,
       paymentKey: noChargeKey,
       orderId,
       approvedAt,
       newBillingCycle: true,
+      chargedAmountKrw: 0,
     });
-    deletePendingCheckout(orderId);
+    await deletePendingCheckout(orderId);
     return {
       ok: true,
       paymentKey: noChargeKey,
@@ -90,7 +107,7 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
   let billRes: Response;
   let billData: unknown;
   try {
-    billRes = await fetch(
+    const result = await fetchJsonWithTimeout(
       `https://api.tosspayments.com/v1/billing/${encodeURIComponent(params.billingKey)}`,
       {
         method: "POST",
@@ -104,17 +121,24 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
           orderId,
           orderName: getPlanOrderName(params.planId),
         }),
-      }
+      },
+      15000
     );
-    billData = await billRes.json().catch(() => ({}));
+    billRes = result.response;
+    billData = result.data;
   } catch (e) {
-    deletePendingCheckout(orderId);
-    const msg = e instanceof Error ? e.message : String(e);
+    await deletePendingCheckout(orderId);
+    const msg =
+      e instanceof DOMException && e.name === "AbortError"
+        ? "토스 정기결제 승인 요청이 시간 초과되었습니다."
+        : e instanceof Error
+          ? e.message
+          : String(e);
     return { ok: false, status: 502, error: `토스 정기결제 승인 요청 실패: ${msg}` };
   }
   const typedBillData = billData as any;
   if (!billRes.ok || typeof typedBillData.paymentKey !== "string" || !typedBillData.paymentKey) {
-    deletePendingCheckout(orderId);
+    await deletePendingCheckout(orderId);
     const msg =
       typeof typedBillData.message === "string" ? typedBillData.message : "정기결제 승인에 실패했습니다.";
     return { ok: false, status: billRes.status >= 500 ? 502 : billRes.status, error: msg };
@@ -124,15 +148,16 @@ async function chargeUpgradeOrInitialWithBillingKey(params: {
     typeof typedBillData.approvedAt === "string" && typedBillData.approvedAt
       ? typedBillData.approvedAt
       : new Date().toISOString();
-  upsertSubscriptionAfterConfirm({
+  await upsertSubscriptionAfterConfirm({
     userId: params.userId,
     planId: params.planId,
     paymentKey: typedBillData.paymentKey,
     orderId: typeof typedBillData.orderId === "string" ? typedBillData.orderId : orderId,
     approvedAt,
     newBillingCycle,
+    chargedAmountKrw: amount,
   });
-  deletePendingCheckout(orderId);
+  await deletePendingCheckout(orderId);
 
   return {
     ok: true,
@@ -188,14 +213,14 @@ export async function POST(request: NextRequest) {
   const authHeader = `Basic ${Buffer.from(`${secret}:`).toString("base64")}`;
 
   if (useExistingBilling) {
-    const method = getSubscriptionBillingMethod(userId);
+    const method = await getSubscriptionBillingMethod(userId);
     if (!method || method.customerKey !== customerKey) {
       return NextResponse.json(
         { error: "등록된 결제 수단이 없거나 customerKey가 일치하지 않습니다." },
         { status: 400 }
       );
     }
-    const prev = getSubscriptionStatusByUser(userId);
+    const prev = await getSubscriptionStatusByUser(userId);
     if (!prev || prev.planId === "free") {
       return NextResponse.json(
         { error: "먼저 카드 등록을 위해 토스에서 카드 정보를 입력해 주세요." },
@@ -207,7 +232,7 @@ export async function POST(request: NextRequest) {
     }
     if (isPaidPlanDowngrade(prev.planId, paidPlanId)) {
       try {
-        const sub = setScheduledPlanAfterCurrentPeriod(userId, paidPlanId);
+        const sub = await setScheduledPlanAfterCurrentPeriod(userId, paidPlanId);
         return NextResponse.json({
           ok: true,
           kind: "scheduled_downgrade",
@@ -235,7 +260,7 @@ export async function POST(request: NextRequest) {
     if (!charged.ok) {
       return NextResponse.json({ error: charged.error }, { status: charged.status });
     }
-    const sub = getSubscriptionStatusByUser(userId);
+    const sub = await getSubscriptionStatusByUser(userId);
     return NextResponse.json({
       ok: true,
       kind: "upgrade",
@@ -257,20 +282,30 @@ export async function POST(request: NextRequest) {
   let issueRes: Response;
   let issueData: unknown;
   try {
-    issueRes = await fetch("https://api.tosspayments.com/v1/billing/authorizations/issue", {
-      method: "POST",
-      headers: {
-        Authorization: authHeader,
-        "Content-Type": "application/json",
+    const result = await fetchJsonWithTimeout(
+      "https://api.tosspayments.com/v1/billing/authorizations/issue",
+      {
+        method: "POST",
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerKey,
+          authKey,
+        }),
       },
-      body: JSON.stringify({
-        customerKey,
-        authKey,
-      }),
-    });
-    issueData = await issueRes.json().catch(() => ({}));
+      15000
+    );
+    issueRes = result.response;
+    issueData = result.data;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg =
+      e instanceof DOMException && e.name === "AbortError"
+        ? "토스 billing 인증 발급 요청이 시간 초과되었습니다."
+        : e instanceof Error
+          ? e.message
+          : String(e);
     return NextResponse.json({ error: `토스 billing 인증 발급 요청 실패: ${msg}` }, { status: 502 });
   }
   const typedIssueData = issueData as any;
@@ -280,13 +315,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: msg }, { status: issueRes.status >= 500 ? 502 : issueRes.status });
   }
 
-  setSubscriptionBillingMethod({
+  await setSubscriptionBillingMethod({
     userId,
     customerKey,
     billingKey: typedIssueData.billingKey,
   });
 
-  const prev = getSubscriptionStatusByUser(userId);
+  const prev = await getSubscriptionStatusByUser(userId);
   const profilePlanForGuard =
     profilePlanIdRaw && isPaidPlanId(profilePlanIdRaw) ? profilePlanIdRaw : null;
   if (
@@ -304,7 +339,7 @@ export async function POST(request: NextRequest) {
   }
   if (prev && prev.planId !== "free" && isPaidPlanDowngrade(prev.planId, paidPlanId)) {
     try {
-      const sub = setScheduledPlanAfterCurrentPeriod(userId, paidPlanId);
+      const sub = await setScheduledPlanAfterCurrentPeriod(userId, paidPlanId);
       return NextResponse.json({
         ok: true,
         kind: "scheduled_downgrade",
@@ -334,7 +369,7 @@ export async function POST(request: NextRequest) {
   if (!charged.ok) {
     return NextResponse.json({ error: charged.error }, { status: charged.status });
   }
-  const sub = getSubscriptionStatusByUser(userId);
+  const sub = await getSubscriptionStatusByUser(userId);
   return NextResponse.json({
     ok: true,
     kind: prev && prev.planId !== "free" && isPaidPlanUpgrade(prev.planId, paidPlanId) ? "upgrade" : "subscribe",

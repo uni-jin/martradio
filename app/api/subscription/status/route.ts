@@ -14,8 +14,8 @@ export async function GET(request: NextRequest) {
   if (!isValidPublicUserId(trimmed)) {
     return NextResponse.json({ error: "userId 형식이 올바르지 않습니다." }, { status: 400 });
   }
-  const subscription = getSubscriptionStatusByUser(trimmed);
-  const hasBillingMethod = getSubscriptionBillingMethod(trimmed) !== null;
+  const subscription = await getSubscriptionStatusByUser(trimmed);
+  const hasBillingMethod = (await getSubscriptionBillingMethod(trimmed)) !== null;
   return NextResponse.json({
     ok: true,
     userId: trimmed,

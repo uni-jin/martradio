@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
-import { getSessionUserId } from "@/lib/userSession.server";
+import { getValidatedUserSession } from "@/lib/userSession.server";
 
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -10,8 +10,11 @@ function hashPassword(password: string): string {
 }
 
 export async function GET() {
-  const userId = await getSessionUserId();
-  if (!userId) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  const validated = await getValidatedUserSession();
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.message, code: validated.code }, { status: 401 });
+  }
+  const userId = validated.userId;
   const supabase = getSupabaseServerClient();
   const found = await supabase
     .from("app_users")
@@ -38,8 +41,11 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  const userId = await getSessionUserId();
-  if (!userId) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  const validated = await getValidatedUserSession();
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.message, code: validated.code }, { status: 401 });
+  }
+  const userId = validated.userId;
   const body = (await req.json().catch(() => ({}))) as {
     name?: string;
     martName?: string;

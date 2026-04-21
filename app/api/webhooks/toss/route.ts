@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   const status = typeof data.status === "string" ? data.status : undefined;
   const approvedAt = typeof data.approvedAt === "string" ? data.approvedAt : undefined;
   const eventId = typeof body.eventId === "string" ? body.eventId : undefined;
-  const duplicate = Boolean(eventId && isWebhookEventProcessed(eventId));
+  const duplicate = Boolean(eventId && (await isWebhookEventProcessed(eventId)));
   const shouldProcessPaymentEvent =
     eventType === "PAYMENT_STATUS_CHANGED" ||
     eventType === "PAYMENT_CANCELED" ||
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
         : status;
 
   if (!duplicate && shouldProcessPaymentEvent) {
-    applyPaymentStatusWebhook({
+    await applyPaymentStatusWebhook({
       eventId,
       orderId,
       paymentKey,
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  appendWebhookLog({
+  await appendWebhookLog({
     receivedAt: new Date().toISOString(),
     eventType,
     orderId,

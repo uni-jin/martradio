@@ -19,7 +19,11 @@ import {
   normalizeTtsLineBreakPauseSeconds,
 } from "@/lib/ttsOptions";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
-import { getVoiceTemplatesUserFacing } from "@/lib/adminData";
+import {
+  clearVoiceTemplatesClientCache,
+  fetchVoiceTemplatesForPlan,
+  useVoiceTemplatesForPlan,
+} from "@/lib/voiceTemplatesClient";
 import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
 import { setYoutubeEmbedIframeVolume } from "@/lib/youtubeEmbedVolume";
 import {
@@ -99,14 +103,14 @@ export default function EditBroadcastPage() {
   }, []);
   const [voiceListTick, setVoiceListTick] = useState(0);
   useEffect(() => {
-    const onV = () => setVoiceListTick((t) => t + 1);
+    const onV = () => {
+      clearVoiceTemplatesClientCache();
+      setVoiceListTick((t) => t + 1);
+    };
     window.addEventListener("mart-voice-templates-updated", onV);
     return () => window.removeEventListener("mart-voice-templates-updated", onV);
   }, []);
-  const availableGooglePresets = useMemo(() => {
-    void voiceListTick;
-    return getVoiceTemplatesUserFacing(user?.planId);
-  }, [voiceListTick, user]);
+  const availableGooglePresets = useVoiceTemplatesForPlan(user?.planId, voiceListTick);
   const maxChars: number | null = useMemo(() => getMaxCharsForUser(user), [user]);
   const promoLength = promoRawText.length;
   const overLimit = maxChars != null && promoLength > maxChars;
@@ -183,10 +187,10 @@ export default function EditBroadcastPage() {
 
   useEffect(() => {
     if (!loaded) return;
-    const list = getVoiceTemplatesUserFacing(user?.planId);
+    const list = availableGooglePresets;
     if (list.length === 0) return;
     setGooglePresetId((prev) => (prev && list.some((x) => x.id === prev) ? prev : list[0].id));
-  }, [loaded, voiceListTick]);
+  }, [loaded, voiceListTick, user?.planId, availableGooglePresets]);
 
   const validateBgm = () => {
     if (!bgmUrl.trim()) {
@@ -217,7 +221,7 @@ export default function EditBroadcastPage() {
 
   useEffect(() => {
     if (!sessionId) return;
-    const applySession = (s: SessionWithItems | null) => {
+    const applySession = async (s: SessionWithItems | null) => {
       if (s) {
       setSessionBase(s);
       setTitle(s.title ?? "");
@@ -261,7 +265,7 @@ export default function EditBroadcastPage() {
       itemsRef.current = s.items ?? [];
       eventItemsRef.current = s.eventItems ?? [];
 
-      const list = getVoiceTemplatesUserFacing(user?.planId);
+      const list = await fetchVoiceTemplatesForPlan(user?.planId);
       const loadedBreak = normalizeTtsLineBreakPauseSeconds(s.ttsBreakSeconds);
       const loadedSpeed =
         s.ttsRate != null ? ratePercentToSpeed(s.ttsRate) : DEFAULT_TTS.speed;
@@ -301,8 +305,10 @@ export default function EditBroadcastPage() {
       setLoaded(true);
       void refreshHasAudio();
     };
-    applySession(getSession(sessionId) as SessionWithItems | null);
-    const onUpdate = () => applySession(getSession(sessionId) as SessionWithItems | null);
+    void applySession(getSession(sessionId) as SessionWithItems | null);
+    const onUpdate = () => {
+      void applySession(getSession(sessionId) as SessionWithItems | null);
+    };
     window.addEventListener("mart-sessions-updated", onUpdate as EventListener);
     return () => window.removeEventListener("mart-sessions-updated", onUpdate as EventListener);
   }, [sessionId, refreshHasAudio, user?.planId]);

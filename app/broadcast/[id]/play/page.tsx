@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { getSession, saveSession } from "@/lib/store";
 import { saveAudio, getAudioBlob, hasStoredAudio } from "@/lib/audioStorage";
 import {
@@ -22,13 +22,20 @@ import {
 import type { SessionWithItems } from "@/lib/types";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
 import { extractYoutubeId } from "@/lib/utils";
-import { getVoiceTemplateById, getVoiceTemplatesUserFacing } from "@/lib/adminData";
+import { findVoiceTemplateByIdInList, useVoiceTemplatesForPlan } from "@/lib/voiceTemplatesClient";
 import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
-import { getCurrentUser, refreshCurrentUser, type AuthUser } from "@/lib/auth";
+import {
+  getCurrentUser,
+  getLastSessionErrorCode,
+  getSessionErrorMessage,
+  refreshCurrentUser,
+  type AuthUser,
+} from "@/lib/auth";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 export default function PlayBroadcastPage() {
   const params = useParams();
+  const router = useRouter();
   const id = typeof params.id === "string" ? params.id : "";
   const [session, setSession] = useState<SessionWithItems | null>(null);
   const [hasAudio, setHasAudio] = useState(false);
@@ -50,6 +57,7 @@ export default function PlayBroadcastPage() {
   const [duration, setDuration] = useState(0);
   const [bgmVolume, setBgmVolume] = useState(40);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   useEffect(() => {
     void refreshCurrentUser().then(setCurrentUser);
   }, []);
@@ -63,10 +71,7 @@ export default function PlayBroadcastPage() {
   const scheduleRepeatRef = useRef<() => void>(() => {});
 
   const youtubeId = session?.bgmYoutubeUrl ? extractYoutubeId(session.bgmYoutubeUrl) : null;
-  const voiceTemplates = useMemo(
-    () => getVoiceTemplatesUserFacing(currentUser?.planId),
-    [currentUser]
-  );
+  const voiceTemplates = useVoiceTemplatesForPlan(currentUser?.planId);
   const hasBgm = Boolean(youtubeId);
   const { containerId, player: ytPlayer } = useYoutubeSegmentPlayer(
     hasBgm ? youtubeId : null,
@@ -172,6 +177,15 @@ export default function PlayBroadcastPage() {
   }, []);
 
   const handleGenerate = async () => {
+    const checkedUser = await refreshCurrentUser();
+    if (!checkedUser) {
+      const reason = getLastSessionErrorCode();
+      const message = getSessionErrorMessage(reason);
+      setSessionNotice(message);
+      setGenerateError(message);
+      router.push(`/login?reason=${encodeURIComponent(reason ?? "login_required")}`);
+      return;
+    }
     if (!session?.generatedText || !id) return;
     setIsGenerating(true);
     setGenerateError(null);
@@ -268,6 +282,15 @@ export default function PlayBroadcastPage() {
   };
 
   const play = useCallback(async () => {
+    const checkedUser = await refreshCurrentUser();
+    if (!checkedUser) {
+      const reason = getLastSessionErrorCode();
+      const message = getSessionErrorMessage(reason);
+      setSessionNotice(message);
+      setGenerateError(message);
+      router.push(`/login?reason=${encodeURIComponent(reason ?? "login_required")}`);
+      return;
+    }
     if (!id || !audioRef.current) return;
     try {
       if (repeatTimerRef.current) {
@@ -332,7 +355,7 @@ export default function PlayBroadcastPage() {
     } catch (e) {
       setGenerateError("재생을 시작할 수 없습니다.");
     }
-  }, [id, hasBgm, ytPlayer, bgmVolume, scheduleRepeat]);
+  }, [id, hasBgm, ytPlayer, bgmVolume, router, scheduleRepeat]);
 
   const pause = useCallback(() => {
     if (repeatTimerRef.current) {
@@ -415,6 +438,11 @@ export default function PlayBroadcastPage() {
         </Link>
         <h1 className="mt-4 text-3xl font-bold text-stone-800">{session.title}</h1>
         <p className="mt-1 text-base text-stone-500">방송 재생</p>
+        {sessionNotice && (
+          <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-base text-red-700">
+            {sessionNotice}
+          </p>
+        )}
 
         {hasBgm && <div id={containerId} className="h-px w-px overflow-hidden opacity-0" aria-hidden />}
 
@@ -616,7 +644,7 @@ export default function PlayBroadcastPage() {
                 <li>제공자: {session?.ttsProvider === "google" ? "Google (Chirp 3 HD)" : "Azure"}</li>
                 <li>프리셋: {session?.ttsProvider === "google"
                   ? (session.ttsVoiceTemplateId
-                      ? (getVoiceTemplateById(session.ttsVoiceTemplateId)?.label ?? "—")
+                      ? (findVoiceTemplateByIdInList(session.ttsVoiceTemplateId, voiceTemplates)?.label ?? "—")
                       : voiceTemplates.find((p) => p.voice === session?.voice)?.label ?? "—")
                   : session?.ttsPresetId === "manual"
                     ? "수동 설정"

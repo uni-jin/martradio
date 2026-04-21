@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
-import { getSessionUserId } from "@/lib/userSession.server";
+import { getValidatedUserSession } from "@/lib/userSession.server";
 
 export async function GET() {
-  const userId = await getSessionUserId();
-  if (!userId) return NextResponse.json({ user: null });
+  const validated = await getValidatedUserSession();
+  if (!validated.ok) {
+    if (validated.code === "login_required") return NextResponse.json({ user: null });
+    return NextResponse.json({ error: validated.message, code: validated.code }, { status: 401 });
+  }
+  const userId = validated.userId;
   const supabase = getSupabaseServerClient();
   const found = await supabase
     .from("app_users")

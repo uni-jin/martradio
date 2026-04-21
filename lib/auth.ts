@@ -8,12 +8,19 @@ export type AuthUser = {
   planId?: PlanId;
 };
 
+export type UserSessionErrorCode =
+  | "login_required"
+  | "invalid_session"
+  | "session_replaced"
+  | "session_expired";
+
 import {
   FREE_PLAN_BROADCAST_MAX_CHARS,
   getAdminProducts,
 } from "@/lib/adminData";
 let currentUserCache: AuthUser | null = null;
 let authHydrating = false;
+let lastSessionErrorCode: UserSessionErrorCode | null = null;
 
 export type StoredUser = {
   id: string;
@@ -48,8 +55,17 @@ export function getCurrentUser(): AuthUser | null {
 
 async function readAuthMe(): Promise<(AuthUser & Partial<StoredUser>) | null> {
   const res = await fetch("/api/public/auth/me", { cache: "no-store" });
-  if (!res.ok) return null;
-  const data = (await res.json().catch(() => ({}))) as { user?: (AuthUser & Partial<StoredUser>) | null };
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as {
+      code?: UserSessionErrorCode;
+    };
+    lastSessionErrorCode = data.code ?? null;
+    return null;
+  }
+  lastSessionErrorCode = null;
+  const data = (await res.json().catch(() => ({}))) as {
+    user?: (AuthUser & Partial<StoredUser>) | null;
+  };
   return data.user ?? null;
 }
 
@@ -69,9 +85,27 @@ export async function refreshCurrentUser(): Promise<AuthUser | null> {
 
 export function saveUser(user: AuthUser | null) {
   currentUserCache = user;
+  if (user) lastSessionErrorCode = null;
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("mart-auth-updated"));
   }
+}
+
+export function getLastSessionErrorCode(): UserSessionErrorCode | null {
+  return lastSessionErrorCode;
+}
+
+export function getSessionErrorMessage(code: UserSessionErrorCode | null): string {
+  if (code === "session_replaced") {
+    return "중복 로그인으로 로그아웃되었습니다. 다시 로그인해 주세요.";
+  }
+  if (code === "session_expired") {
+    return "24시간 동안 활동이 없어 세션이 만료되었습니다. 다시 로그인해 주세요.";
+  }
+  if (code === "invalid_session") {
+    return "세션이 유효하지 않습니다. 다시 로그인해 주세요.";
+  }
+  return "로그인이 필요합니다.";
 }
 
 export type RegisterPayload = {

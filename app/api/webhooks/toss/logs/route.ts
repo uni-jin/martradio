@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   const fromMs = from ? new Date(from).getTime() : NaN;
   const toMs = to ? new Date(to).getTime() : NaN;
 
-  const logs = getWebhookLogs()
+  const logs = (await getWebhookLogs())
     .filter((log) => {
       if (eventType && log.eventType !== eventType) return false;
       if (status && (log.status ?? "") !== status) return false;

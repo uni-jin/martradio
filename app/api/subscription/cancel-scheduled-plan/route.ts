@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const subscription = cancelScheduledPlanChange(uid);
+    const subscription = await cancelScheduledPlanChange(uid);
     return NextResponse.json({ ok: true, userId: uid, subscription });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "예약 취소에 실패했습니다.";

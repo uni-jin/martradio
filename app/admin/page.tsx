@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import AdminShell from "@/app/_components/AdminShell";
 import {
-  computeAdminDashboardStats,
+  computeTopReferrers,
   type AdminPayment,
   type AdminDashboardStats,
   type AdminReferrer,
@@ -140,7 +140,7 @@ export default function AdminHomePage() {
           .filter((p) => new Date(p.paidAt).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000)
           .reduce((sum, p) => sum + p.amount, 0),
         planBreakdown: [...planMap.entries()].map(([key, count]) => ({ key, label: key, count })),
-        topReferrers: computeAdminDashboardStats(list).topReferrers,
+        topReferrers: computeTopReferrers(list, loadedUsers, loadedPayments),
         recentPayments: loadedPayments.slice().sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime()).slice(0, 10),
       });
     })();

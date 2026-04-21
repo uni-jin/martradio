@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       path: "/",
       maxAge: 60 * 60 * 24 * 7,
     });
-    appendSecurityAudit({ type: "admin_login_ok", username: u, ip });
+    await appendSecurityAudit({ type: "admin_login_ok", username: u, ip });
     return NextResponse.json({
       ok: true,
       username: u,
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
       path: "/",
       maxAge: 60 * 60 * 24 * 7,
     });
-    appendSecurityAudit({ type: "admin_login_ok", username: ref.loginId, ip });
+    await appendSecurityAudit({ type: "admin_login_ok", username: ref.loginId, ip });
     return NextResponse.json({
       ok: true,
       username: ref.loginId,
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  appendSecurityAudit({
+  await appendSecurityAudit({
     type: "admin_login_failed",
     username: username.trim(),
     ip,

@@ -24,7 +24,10 @@ import {
   normalizeTtsLineBreakPauseSeconds,
 } from "@/lib/ttsOptions";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
-import { getVoiceTemplatesUserFacing } from "@/lib/adminData";
+import {
+  clearVoiceTemplatesClientCache,
+  useVoiceTemplatesForPlan,
+} from "@/lib/voiceTemplatesClient";
 import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
 import { setYoutubeEmbedIframeVolume } from "@/lib/youtubeEmbedVolume";
 import {
@@ -119,14 +122,14 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   }, [demoMode]);
   const [voiceListTick, setVoiceListTick] = useState(0);
   useEffect(() => {
-    const onV = () => setVoiceListTick((t) => t + 1);
+    const onV = () => {
+      clearVoiceTemplatesClientCache();
+      setVoiceListTick((t) => t + 1);
+    };
     window.addEventListener("mart-voice-templates-updated", onV);
     return () => window.removeEventListener("mart-voice-templates-updated", onV);
   }, []);
-  const availableGooglePresets = useMemo(() => {
-    void voiceListTick;
-    return getVoiceTemplatesUserFacing(user?.planId);
-  }, [voiceListTick, user]);
+  const availableGooglePresets = useVoiceTemplatesForPlan(user?.planId, voiceListTick);
   const planMaxChars: number | null = useMemo(() => getMaxCharsForUser(user), [user]);
   const maxChars: number | null = demoMode ? DEMO_MAX_CHARS : planMaxChars;
   const promoLength = promoRawText.length;
@@ -183,10 +186,10 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   }, [bgmVolume]);
 
   useEffect(() => {
-    const list = getVoiceTemplatesUserFacing(user?.planId);
+    const list = availableGooglePresets;
     if (list.length === 0) return;
     setGooglePresetId((prev) => (prev && list.some((x) => x.id === prev) ? prev : list[0].id));
-  }, [voiceListTick, user]);
+  }, [voiceListTick, user, availableGooglePresets]);
 
   const previewSrc = useMemo(() => {
     if (!youtubeId) return null;

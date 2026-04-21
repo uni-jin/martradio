@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { BroadcastItem, Session, SessionWithItems } from "@/lib/types";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
-import { getSessionUserId } from "@/lib/userSession.server";
+import { getValidatedUserSession } from "@/lib/userSession.server";
 
 export const runtime = "nodejs";
 
@@ -55,8 +55,11 @@ function mapItemRow(row: Record<string, any>): BroadcastItem {
 }
 
 export async function GET(req: NextRequest) {
-  const userId = await getSessionUserId();
-  if (!userId) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  const validated = await getValidatedUserSession();
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.message, code: validated.code }, { status: 401 });
+  }
+  const userId = validated.userId;
   const sessionId = req.nextUrl.searchParams.get("sessionId")?.trim() ?? "";
   const supabase = getSupabaseServerClient();
   let sessionQuery = supabase.from("broadcast_sessions").select("*").eq("owner_user_id", userId);
@@ -89,8 +92,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const userId = await getSessionUserId();
-  if (!userId) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  const validated = await getValidatedUserSession();
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.message, code: validated.code }, { status: 401 });
+  }
+  const userId = validated.userId;
   const body = (await req.json().catch(() => ({}))) as { session?: Session; items?: BroadcastItem[]; eventItems?: BroadcastItem[] };
   const session = body.session;
   if (!session?.id) return NextResponse.json({ error: "session이 필요합니다." }, { status: 400 });
@@ -145,8 +151,11 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const userId = await getSessionUserId();
-  if (!userId) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  const validated = await getValidatedUserSession();
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.message, code: validated.code }, { status: 401 });
+  }
+  const userId = validated.userId;
   const body = (await req.json().catch(() => ({}))) as { sessionId?: string };
   const sessionId = (body.sessionId ?? "").trim();
   if (!sessionId) return NextResponse.json({ error: "sessionId가 필요합니다." }, { status: 400 });

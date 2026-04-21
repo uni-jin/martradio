@@ -2,11 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { appendUserPayment } from "@/lib/adminData";
 import {
   getCurrentUser,
   getPlanLabel,
-  getStoredUserForCurrentSession,
   PlanId,
   refreshCurrentUser,
   updateCurrentUserPlan,
@@ -59,6 +57,20 @@ function loadTossPaymentsScript(): Promise<void> {
     script.onerror = () => reject(new Error("토스 결제 스크립트 로드에 실패했습니다."));
     document.head.appendChild(script);
   });
+}
+
+async function fetchJsonWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const PLANS: {
@@ -237,18 +249,22 @@ export default function PricingPage() {
         return;
       }
       handledCheckoutRef.current = true;
-      window.sessionStorage.setItem(successGuardKey, successToken);
 
       const runBilling = async () => {
+        setIsProcessingCheckout(true);
         try {
           const user = await refreshCurrentUser();
           if (!user?.id) throw new Error("로그인 정보를 찾을 수 없습니다.");
           const profilePlanId = (await refreshCurrentUser())?.planId ?? "free";
-          const activateRes = await fetch("/api/subscription/billing/activate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId: user.id, planId, customerKey, authKey, profilePlanId }),
-          });
+          const activateRes = await fetchJsonWithTimeout(
+            "/api/subscription/billing/activate",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ userId: user.id, planId, customerKey, authKey, profilePlanId }),
+            },
+            15000
+          );
           const activateData = await activateRes.json().catch(() => ({}));
           if (!activateRes.ok || !activateData.ok) {
             throw new Error(
@@ -257,7 +273,6 @@ export default function PricingPage() {
                 : "정기결제 시작에 실패했습니다."
             );
           }
-          const before = await refreshCurrentUser();
           if (activateData.kind === "scheduled_downgrade") {
             await refreshServerSubscription();
             setPricingFlow({
@@ -268,25 +283,6 @@ export default function PricingPage() {
             });
           } else {
             const updated = await updateCurrentUserPlan(planId);
-            if (before) {
-              const stored = await getStoredUserForCurrentSession();
-              const amt =
-                typeof activateData.amount === "number" && Number.isFinite(activateData.amount)
-                  ? activateData.amount
-                  : getPlanAmount(planId);
-              appendUserPayment({
-                userId: before.id,
-                username: before.email,
-                productId: planId,
-                amount: amt,
-                referrerId: stored?.referrerId ?? null,
-                source: "web_checkout",
-                paymentKey:
-                  typeof activateData.paymentKey === "string" ? activateData.paymentKey : null,
-                orderId: typeof activateData.orderId === "string" ? activateData.orderId : null,
-                status: "DONE",
-              });
-            }
             setCurrentPlan(updated?.planId);
             await refreshServerSubscription();
             setPricingFlow({
@@ -299,10 +295,18 @@ export default function PricingPage() {
               afterDismiss: () => router.push("/subscription"),
             });
           }
+          window.sessionStorage.setItem(successGuardKey, successToken);
         } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
+          const msg =
+            e instanceof DOMException && e.name === "AbortError"
+              ? "결제 승인 처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+              : e instanceof Error
+                ? e.message
+                : String(e);
+          window.sessionStorage.removeItem(successGuardKey);
           setPricingFlow({ variant: "notify", title: "오류", message: msg });
         } finally {
+          setIsProcessingCheckout(false);
           clearQuery();
         }
       };
@@ -353,22 +357,7 @@ export default function PricingPage() {
           );
         }
 
-        const before = await refreshCurrentUser();
         const updated = await updateCurrentUserPlan(planId);
-        if (before) {
-          const stored = await getStoredUserForCurrentSession();
-          appendUserPayment({
-            userId: before.id,
-            username: before.email,
-            productId: planId,
-            amount,
-            referrerId: stored?.referrerId ?? null,
-            source: "web_checkout",
-            paymentKey,
-            orderId,
-            status: "DONE",
-          });
-        }
         setCurrentPlan(updated?.planId);
         await refreshServerSubscription();
         setPricingFlow({
@@ -583,23 +572,7 @@ export default function PricingPage() {
               afterDismiss: () => router.push("/subscription"),
             });
           } else {
-            const before = await refreshCurrentUser();
             const updated = await updateCurrentUserPlan(chosenPlan);
-            if (before && typeof activateData.amount === "number" && activateData.amount > 0) {
-              const stored = await getStoredUserForCurrentSession();
-              appendUserPayment({
-                userId: before.id,
-                username: before.email,
-                productId: chosenPlan,
-                amount: activateData.amount,
-                referrerId: stored?.referrerId ?? null,
-                source: "web_checkout",
-                paymentKey:
-                  typeof activateData.paymentKey === "string" ? activateData.paymentKey : null,
-                orderId: typeof activateData.orderId === "string" ? activateData.orderId : null,
-                status: "DONE",
-              });
-            }
             setCurrentPlan(updated?.planId);
             setPricingFlow({
               variant: "notify",

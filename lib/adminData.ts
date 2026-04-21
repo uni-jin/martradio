@@ -1,16 +1,11 @@
 "use client";
-import { GOOGLE_TTS_PRESETS } from "./ttsOptions";
-import type { VoiceTemplate } from "./voiceTemplateTypes";
 
 export type { VoiceTemplate } from "./voiceTemplateTypes";
 
 export type AdminReferrer = {
   id: string;
-  /** 관리자 사이트 로그인 ID (영문·숫자) */
   loginId: string;
-  /** 추천인 코드명 */
   name: string;
-  /** 실제 담당자 이름 */
   personName?: string;
   phone?: string;
   email?: string;
@@ -39,7 +34,6 @@ export type AdminProduct = {
   isActive: boolean;
 };
 
-/** 무료 구독 방송문 글자 상한 — 관리자·저장소에서 변경하지 않음 */
 export const FREE_PLAN_BROADCAST_MAX_CHARS = 100;
 
 export type AdminPayment = {
@@ -62,174 +56,8 @@ export type AdminTemplateOption = {
   content: string;
 };
 
-const TEMPLATES_KEY = "mart-radio-admin-templates";
-const VOICES_KEY_V2 = "mart-radio-voice-templates-v2";
-const VOICES_KEY_LEGACY = "mart-radio-admin-voices";
-const PRODUCTS_KEY = "mart-radio-admin-products";
-const PAYMENTS_KEY = "mart-radio-admin-payments";
-
-const now = () => new Date().toISOString();
-
-function readList<T>(key: string, fallback: T[]): T[] {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as T[]) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeList<T>(key: string, data: T[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, JSON.stringify(data));
-}
-
-/** @deprecated 추천인 데이터는 `/api/admin/referrers`를 사용합니다. */
-export function getAdminReferrers(): AdminReferrer[] {
-  return [];
-}
-
-/** @deprecated 추천인 데이터는 `/api/admin/referrers`를 사용합니다. */
-export function saveAdminReferrers(_list: AdminReferrer[]) {}
-
-export function getAdminTemplates(): AdminTemplate[] {
-  return readList<AdminTemplate>(TEMPLATES_KEY, []).map((t) => ({
-    ...t,
-    enabled: t.enabled !== false,
-  }));
-}
-
-export function saveAdminTemplates(list: AdminTemplate[]) {
-  writeList(TEMPLATES_KEY, list);
-}
-
-function seedVoiceTemplates(): VoiceTemplate[] {
-  const t = now();
-  return GOOGLE_TTS_PRESETS.map((preset) => ({
-    id: preset.id,
-    label: preset.label,
-    voice: preset.voice,
-    ttsEngine: "chirp3-hd",
-    geminiPrompt: null,
-    languageCode: "ko-KR",
-    enabled: true,
-    paidOnly: false,
-    speakingRate: 1,
-    pitch: 0,
-    volumeGainDb: 0,
-    sampleRateHertz: null,
-    effectsProfileId: null,
-    createdAt: t,
-    updatedAt: t,
-  }));
-}
-
-function migrateLegacyVoiceRow(row: Record<string, unknown>): VoiceTemplate | null {
-  if (typeof row.id !== "string" || typeof row.voice !== "string") return null;
-  const t = now();
-  return {
-    id: row.id,
-    label: typeof row.label === "string" ? row.label : row.id,
-    voice: row.voice,
-    ttsEngine:
-      row.ttsEngine === "gemini-3.1-flash-tts-preview" ? "gemini-3.1-flash-tts-preview" : "chirp3-hd",
-    geminiPrompt: typeof row.geminiPrompt === "string" ? row.geminiPrompt : null,
-    languageCode: typeof row.languageCode === "string" ? row.languageCode : "ko-KR",
-    enabled: row.enabled !== false,
-    paidOnly: row.paidOnly === true,
-    speakingRate: typeof row.speakingRate === "number" && Number.isFinite(row.speakingRate) ? row.speakingRate : 1,
-    pitch: typeof row.pitch === "number" && Number.isFinite(row.pitch) ? row.pitch : 0,
-    volumeGainDb:
-      typeof row.volumeGainDb === "number" && Number.isFinite(row.volumeGainDb) ? row.volumeGainDb : 0,
-    sampleRateHertz:
-      typeof row.sampleRateHertz === "number" && row.sampleRateHertz > 0 ? row.sampleRateHertz : null,
-    effectsProfileId: Array.isArray(row.effectsProfileId)
-      ? (row.effectsProfileId as unknown[]).filter((x): x is string => typeof x === "string")
-      : null,
-    createdAt: typeof row.createdAt === "string" ? row.createdAt : t,
-    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : t,
-  };
-}
-
-function ensureVoiceTemplateShape(v: VoiceTemplate): VoiceTemplate {
-  const t = now();
-  const engine =
-    v.ttsEngine === "gemini-3.1-flash-tts-preview" ? "gemini-3.1-flash-tts-preview" : "chirp3-hd";
-  return {
-    id: v.id,
-    label: v.label || v.id,
-    voice: v.voice,
-    ttsEngine: engine,
-    geminiPrompt: typeof v.geminiPrompt === "string" ? v.geminiPrompt : null,
-    languageCode: v.languageCode || "ko-KR",
-    enabled: v.enabled !== false,
-    paidOnly: v.paidOnly === true,
-    speakingRate:
-      typeof v.speakingRate === "number" && Number.isFinite(v.speakingRate) ? v.speakingRate : 1,
-    pitch: typeof v.pitch === "number" && Number.isFinite(v.pitch) ? v.pitch : 0,
-    volumeGainDb:
-      typeof v.volumeGainDb === "number" && Number.isFinite(v.volumeGainDb) ? v.volumeGainDb : 0,
-    sampleRateHertz:
-      typeof v.sampleRateHertz === "number" && v.sampleRateHertz > 0 ? v.sampleRateHertz : null,
-    effectsProfileId: Array.isArray(v.effectsProfileId) ? v.effectsProfileId : null,
-    createdAt: v.createdAt || t,
-    updatedAt: v.updatedAt || t,
-  };
-}
-
-/** 저장된 Google 음성 템플릿 전체 */
-export function getVoiceTemplates(): VoiceTemplate[] {
-  if (typeof window === "undefined") return [];
-
-  const v2 = readList<VoiceTemplate>(VOICES_KEY_V2, []);
-  if (v2.length > 0) {
-    return v2.map(ensureVoiceTemplateShape);
-  }
-
-  const legacy = readList<Record<string, unknown>>(VOICES_KEY_LEGACY, []);
-  if (legacy.length > 0) {
-    const migrated = legacy.map(migrateLegacyVoiceRow).filter((x): x is VoiceTemplate => x != null);
-    if (migrated.length > 0) {
-      writeList(VOICES_KEY_V2, migrated);
-      return migrated;
-    }
-  }
-
-  const seeded = seedVoiceTemplates();
-  writeList(VOICES_KEY_V2, seeded);
-  return seeded;
-}
-
-export function saveVoiceTemplates(list: VoiceTemplate[]) {
-  writeList(VOICES_KEY_V2, list);
-}
-
-/** @deprecated 이름 호환 — getVoiceTemplates 사용 권장 */
-export function getAdminVoices(): VoiceTemplate[] {
-  return getVoiceTemplates();
-}
-
-/** @deprecated saveVoiceTemplates 사용 권장 */
-export function saveAdminVoices(list: VoiceTemplate[]) {
-  saveVoiceTemplates(list);
-}
-
-/** 사용자 방송 화면에 노출할 활성 템플릿 (이름순) */
-export function getVoiceTemplatesUserFacing(planId?: string): VoiceTemplate[] {
-  const isPaidPlan = planId === "small" || planId === "medium" || planId === "large";
-  return getVoiceTemplates()
-    .filter((v) => v.enabled)
-    .filter((v) => (v.paidOnly ? isPaidPlan : true))
-    .slice()
-    .sort((a, b) => a.label.localeCompare(b.label, "ko"));
-}
-
-export function getVoiceTemplateById(id: string): VoiceTemplate | undefined {
-  return getVoiceTemplates().find((v) => v.id === id);
-}
+/** 서버 `/api/public/plan-catalog` 응답 캐시 — 운영 상품은 DB(admin_kv)가 소스 */
+let planCatalogCache: AdminProduct[] | null = null;
 
 const DEFAULT_ADMIN_PRODUCTS: AdminProduct[] = [
   {
@@ -270,11 +98,22 @@ const DEFAULT_ADMIN_PRODUCTS: AdminProduct[] = [
   },
 ];
 
-export function getAdminProducts(): AdminProduct[] {
-  const list = readList<AdminProduct>(PRODUCTS_KEY, DEFAULT_ADMIN_PRODUCTS);
-  const byId = new Map(DEFAULT_ADMIN_PRODUCTS.map((p) => [p.id, p]));
+export async function fetchPlanCatalog(): Promise<AdminProduct[]> {
+  try {
+    const res = await fetch("/api/public/plan-catalog", { cache: "no-store" });
+    const data = (await res.json().catch(() => ({}))) as { products?: AdminProduct[] };
+    const list = Array.isArray(data.products) ? data.products : [];
+    planCatalogCache = list.length > 0 ? list : null;
+  } catch {
+    planCatalogCache = null;
+  }
+  return getAdminProducts();
+}
 
-  const merged = list.map((p) => {
+export function getAdminProducts(): AdminProduct[] {
+  const list = planCatalogCache ?? [];
+  const byId = new Map(DEFAULT_ADMIN_PRODUCTS.map((p) => [p.id, p]));
+  const merged = (list.length > 0 ? list : DEFAULT_ADMIN_PRODUCTS).map((p) => {
     const def = byId.get(p.id);
     if (!def) return p;
     const next: AdminProduct = { ...def, ...p };
@@ -283,12 +122,10 @@ export function getAdminProducts(): AdminProduct[] {
     }
     return next;
   });
-
   const seen = new Set(merged.map((p) => p.id));
   for (const def of DEFAULT_ADMIN_PRODUCTS) {
     if (!seen.has(def.id)) merged.push(def);
   }
-
   return merged.map((p) => ({
     ...p,
     visibleSessionLimit:
@@ -302,107 +139,30 @@ export function getAdminProducts(): AdminProduct[] {
   }));
 }
 
-export function saveAdminProducts(list: AdminProduct[]) {
-  const normalized = list.map((p) =>
-    p.id === "free" ? { ...p, maxChars: FREE_PLAN_BROADCAST_MAX_CHARS } : p
-  );
-  writeList(PRODUCTS_KEY, normalized);
+export async function fetchUserPaymentsFromApi(): Promise<AdminPayment[]> {
+  const res = await fetch("/api/public/user/payments", { cache: "no-store", credentials: "include" });
+  const data = (await res.json().catch(() => ({}))) as { payments?: AdminPayment[] };
+  return Array.isArray(data.payments) ? data.payments : [];
 }
 
-export function getAdminPayments(): AdminPayment[] {
-  return readList<AdminPayment>(PAYMENTS_KEY, []);
+export {
+  fetchVoiceTemplatesForPlan,
+  findVoiceTemplateByIdInList,
+  getVoiceTemplatesUserFacingSync as getVoiceTemplatesUserFacing,
+  useVoiceTemplatesForPlan,
+} from "./voiceTemplatesClient";
+
+/** @deprecated 추천인 데이터는 `/api/admin/referrers`를 사용합니다. */
+export function getAdminReferrers(): AdminReferrer[] {
+  return [];
 }
 
-export function saveAdminPayments(list: AdminPayment[]) {
-  writeList(PAYMENTS_KEY, list);
-}
-
-/** 로그인 회원의 결제 이력 (최신순) */
-export function getPaymentsForUser(userId: string, username: string): AdminPayment[] {
-  return getAdminPayments()
-    .filter((p) => p.userId === userId || p.username === username)
-    .slice()
-    .sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime());
-}
-
-export function appendUserPayment(params: {
-  userId: string;
-  username: string;
-  productId: string;
-  amount: number;
-  referrerId?: string | null;
-  source?: "web_checkout" | "dummy";
-  paymentKey?: string | null;
-  orderId?: string | null;
-  status?: string | null;
-}): void {
-  if (typeof window === "undefined") return;
-  const payment: AdminPayment = {
-    id: `pay-${Date.now()}`,
-    userId: params.userId,
-    username: params.username,
-    productId: params.productId,
-    amount: params.amount,
-    paidAt: new Date().toISOString(),
-    referrerId: params.referrerId ?? null,
-    source: params.source ?? "web_checkout",
-    paymentKey: params.paymentKey ?? null,
-    orderId: params.orderId ?? null,
-    status: params.status ?? "DONE",
-  };
-  saveAdminPayments([payment, ...getAdminPayments()]);
-}
-
-/** 회원의 추천인이 바뀔 때, 해당 회원 결제 건의 referrerId를 동일 값으로 맞춥니다(추천인 결제 통계 등). */
-export function syncPaymentReferrerForUser(params: {
-  userId: string;
-  username: string;
-  referrerId: string | null;
-}): void {
-  if (typeof window === "undefined") return;
-  const uid = params.userId.trim();
-  if (!uid) return;
-  const uname = params.username.trim();
-  const ref = params.referrerId?.trim() ? params.referrerId.trim() : null;
-  const list = getAdminPayments();
-  let changed = false;
-  const next = list.map((p) => {
-    const match = p.userId === uid || (uname.length > 0 && p.username === uname);
-    if (!match) return p;
-    const prev = p.referrerId ?? null;
-    if (prev === ref) return p;
-    changed = true;
-    return { ...p, referrerId: ref };
-  });
-  if (changed) saveAdminPayments(next);
-}
-
-export function getAdminUsers(): Array<Record<string, unknown>> {
-  return readList<Record<string, unknown>>("mart-radio-users", []);
-}
-
-export function getEnabledGoogleTtsPresetIds(): string[] {
-  return getVoiceTemplates()
-    .filter((v) => v.enabled)
-    .map((v) => v.id);
-}
-
-export function getTemplateOptionsForPlan(planId: string | undefined): AdminTemplateOption[] {
-  const templates = getAdminTemplates();
-  if (templates.length === 0) return [];
-  const products = getAdminProducts();
-  const current = products.find((p) => p.id === (planId ?? "free"));
-  const canUseTemplate = current?.templateEnabled ?? false;
-  return templates
-    .filter((t) => t.enabled !== false)
-    .filter((t) => (t.paidOnly ? canUseTemplate : true))
-    .map((t) => ({ id: t.id, name: t.name, content: t.content }));
-}
+/** @deprecated 추천인 데이터는 `/api/admin/referrers`를 사용합니다. */
+export function saveAdminReferrers(_list: AdminReferrer[]) {}
 
 export type AdminDashboardStats = {
   totalUsers: number;
   paidUsers: number;
-  /** 구독별 가입자 수 (무료 방송/기본 방송/무제한 방송) */
   planBreakdown: { key: string; label: string; count: number }[];
   referrersTotal: number;
   referrersActive: number;
@@ -416,86 +176,22 @@ export type AdminDashboardStats = {
   totalRevenue: number;
   payments7d: number;
   revenue7d: number;
-  /** 가입 연결 수 기준 상위 추천인 */
   topReferrers: { id: string; name: string; signups: number; paymentCount: number; revenue: number }[];
   recentPayments: AdminPayment[];
 };
 
-type PlanKey = "free" | "small" | "medium" | "large";
-
-function userPlanKey(u: Record<string, unknown>): PlanKey {
-  const p = u.planId;
-  if (p === "small" || p === "medium" || p === "large" || p === "free") return p;
-  return "free";
-}
-
-/** 클라이언트에서 localStorage 기준으로 집계. `referrers`는 API에서 받은 목록을 넘깁니다. */
-export function computeAdminDashboardStats(referrers: AdminReferrer[]): AdminDashboardStats {
-  const emptyPlanBreakdown = [
-    { key: "free", label: "무료 방송", count: 0 },
-    { key: "basic", label: "기본 방송", count: 0 },
-    { key: "large", label: "무제한 방송", count: 0 },
-  ];
-
-  if (typeof window === "undefined") {
-    return {
-      totalUsers: 0,
-      paidUsers: 0,
-      planBreakdown: emptyPlanBreakdown,
-      referrersTotal: referrers.length,
-      referrersActive: referrers.filter((r) => r.isActive).length,
-      templatesTotal: 0,
-      templatesPaidOnly: 0,
-      productsActive: 0,
-      voicesEnabled: 0,
-      voicesTotal: 0,
-      paymentCount: 0,
-      paymentsThisMonth: 0,
-      totalRevenue: 0,
-      payments7d: 0,
-      revenue7d: 0,
-      topReferrers: [],
-      recentPayments: [],
-    };
-  }
-
-  const users = getAdminUsers();
-  const templates = getAdminTemplates();
-  const products = getAdminProducts();
-  const voices = getVoiceTemplates();
-  const payments = getAdminPayments();
-
-  const planCounts = new Map<string, number>();
-  for (const u of users) {
-    const k = userPlanKey(u);
-    planCounts.set(k, (planCounts.get(k) ?? 0) + 1);
-  }
-  const planBreakdown = [
-    {
-      key: "free",
-      label: "무료 방송",
-      count: planCounts.get("free") ?? 0,
-    },
-    {
-      key: "basic",
-      label: "기본 방송",
-      count: (planCounts.get("small") ?? 0) + (planCounts.get("medium") ?? 0),
-    },
-    {
-      key: "large",
-      label: "무제한 방송",
-      count: planCounts.get("large") ?? 0,
-    },
-  ];
-
+export function computeTopReferrers(
+  referrers: AdminReferrer[],
+  users: Array<Record<string, unknown>>,
+  payments: AdminPayment[]
+): { id: string; name: string; signups: number; paymentCount: number; revenue: number }[] {
   const signupsByRef = new Map<string, number>();
   for (const u of users) {
     const refId = u.referrerId;
     if (typeof refId === "string" && refId.trim()) {
-      signupsByRef.set(refId, (signupsByRef.get(refId) ?? 0) + 1);
+      signupsByRef.set(refId.trim(), (signupsByRef.get(refId.trim()) ?? 0) + 1);
     }
   }
-
   const revenueByRef = new Map<string, number>();
   const paymentCountByRef = new Map<string, number>();
   for (const p of payments) {
@@ -504,8 +200,7 @@ export function computeAdminDashboardStats(referrers: AdminReferrer[]): AdminDas
       paymentCountByRef.set(p.referrerId, (paymentCountByRef.get(p.referrerId) ?? 0) + 1);
     }
   }
-
-  const topReferrers = referrers
+  return referrers
     .map((r) => ({
       id: r.id,
       name: r.name,
@@ -518,75 +213,4 @@ export function computeAdminDashboardStats(referrers: AdminReferrer[]): AdminDas
       return b.revenue - a.revenue;
     })
     .slice(0, 3);
-
-  const now = Date.now();
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const monthStartMs = monthStart.getTime();
-  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-  let payments7d = 0;
-  let revenue7d = 0;
-  let paymentsThisMonth = 0;
-  for (const p of payments) {
-    const t = new Date(p.paidAt).getTime();
-    if (!Number.isNaN(t) && t >= monthStartMs) {
-      paymentsThisMonth += 1;
-    }
-    if (!Number.isNaN(t) && now - t <= sevenDaysMs) {
-      payments7d += 1;
-      revenue7d += p.amount;
-    }
-  }
-
-  const totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
-  const sortedPayments = [...payments].sort(
-    (a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime()
-  );
-
-  return {
-    totalUsers: users.length,
-    paidUsers: users.filter((u) => userPlanKey(u) !== "free").length,
-    planBreakdown,
-    referrersTotal: referrers.length,
-    referrersActive: referrers.filter((r) => r.isActive).length,
-    templatesTotal: templates.filter((t) => t.enabled !== false).length,
-    templatesPaidOnly: templates.filter((t) => t.enabled !== false && t.paidOnly).length,
-    productsActive: products.filter((p) => p.isActive).length,
-    voicesEnabled: voices.filter((v) => v.enabled).length,
-    voicesTotal: voices.length,
-    paymentCount: payments.length,
-    paymentsThisMonth,
-    totalRevenue,
-    payments7d,
-    revenue7d,
-    topReferrers,
-    recentPayments: sortedPayments.slice(0, 8),
-  };
 }
-
-export function generateDummyPayment(): AdminPayment | null {
-  const users = getAdminUsers();
-  const products = getAdminProducts().filter((p) => p.isActive && p.priceMonthly > 0);
-  if (users.length === 0 || products.length === 0) return null;
-
-  const randomUser = users[Math.floor(Math.random() * users.length)];
-  const randomProduct = products[Math.floor(Math.random() * products.length)];
-  const payment: AdminPayment = {
-    id: `pay-${Date.now()}`,
-    userId: String(randomUser.id ?? ""),
-    username: String(randomUser.username ?? "unknown"),
-    productId: randomProduct.id,
-    amount: randomProduct.priceMonthly,
-    paidAt: new Date().toISOString(),
-    referrerId: (randomUser.referrerId as string | undefined) ?? null,
-    source: "dummy",
-    paymentKey: null,
-    orderId: null,
-    status: "DONE",
-  };
-  const list = getAdminPayments();
-  saveAdminPayments([payment, ...list]);
-  return payment;
-}
-
