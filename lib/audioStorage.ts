@@ -58,6 +58,38 @@ export async function hasStoredAudio(sessionId: string): Promise<boolean> {
   return blob != null && blob.size > 0;
 }
 
+export async function getLatestAudioBlob(): Promise<Blob | null> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.openCursor();
+    let latestBlob: Blob | null = null;
+    let latestUpdatedAt = -1;
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        db.close();
+        resolve(latestBlob);
+        return;
+      }
+      const row = cursor.value as { blob?: Blob; updatedAt?: number } | undefined;
+      if (row?.blob && row.blob.size > 0) {
+        const updatedAt = typeof row.updatedAt === "number" ? row.updatedAt : 0;
+        if (updatedAt >= latestUpdatedAt) {
+          latestUpdatedAt = updatedAt;
+          latestBlob = row.blob;
+        }
+      }
+      cursor.continue();
+    };
+    req.onerror = () => {
+      db.close();
+      reject(req.error);
+    };
+  });
+}
+
 export async function removeAudio(sessionId: string): Promise<void> {
   const db = await openDb();
   return new Promise((resolve, reject) => {

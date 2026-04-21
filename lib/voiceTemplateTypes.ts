@@ -20,6 +20,8 @@ export type VoiceTemplate = {
   enabled: boolean;
   /** true면 유료 플랜에만 노출 */
   paidOnly?: boolean;
+  /** 사용자 노출 순서 (오름차순) */
+  sortOrder?: number;
   /**
    * 템플릿 기본 말하기 속도 배율. 사용자 화면 속도와 곱해짐.
    * Google speakingRate 0.25~4.0 범위로 최종 클램프.

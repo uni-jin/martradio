@@ -44,6 +44,7 @@ function newTemplate(): VoiceTemplate {
     languageCode: "ko-KR",
     enabled: true,
     paidOnly: false,
+    sortOrder: 0,
     speakingRate: 1,
     pitch: 0,
     volumeGainDb: 0,
@@ -52,6 +53,20 @@ function newTemplate(): VoiceTemplate {
     createdAt: t,
     updatedAt: t,
   };
+}
+
+function normalizeSortOrder(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.floor(value));
+}
+
+function sortVoiceTemplates(list: VoiceTemplate[]): VoiceTemplate[] {
+  return [...list].sort((a, b) => {
+    const aOrder = normalizeSortOrder(a.sortOrder, Number.MAX_SAFE_INTEGER);
+    const bOrder = normalizeSortOrder(b.sortOrder, Number.MAX_SAFE_INTEGER);
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return a.label.localeCompare(b.label, "ko");
+  });
 }
 
 export default function AdminVoicesPage() {
@@ -72,7 +87,8 @@ export default function AdminVoicesPage() {
     const data = await fetchAdminJsonCached<{ voices?: VoiceTemplate[] }>("/api/admin/data/voices", {
       force: true,
     });
-    setList(Array.isArray(data.voices) ? data.voices : []);
+    const loaded = Array.isArray(data.voices) ? data.voices : [];
+    setList(sortVoiceTemplates(loaded));
   }, []);
 
   useEffect(() => {
@@ -162,13 +178,14 @@ export default function AdminVoicesPage() {
   };
 
   const persist = (next: VoiceTemplate[]) => {
-    setList(next);
+    const sorted = sortVoiceTemplates(next);
+    setList(sorted);
     invalidateAdminClientCache("/api/admin/data/voices");
     void fetch("/api/admin/data/voices", {
       method: "PUT",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ voices: next }),
+      body: JSON.stringify({ voices: sorted }),
     });
     try {
       window.dispatchEvent(new CustomEvent("mart-voice-templates-updated"));
@@ -178,7 +195,11 @@ export default function AdminVoicesPage() {
   };
 
   const startAdd = () => {
-    setEditing(newTemplate());
+    const maxSortOrder = list.reduce(
+      (max, voice) => Math.max(max, normalizeSortOrder(voice.sortOrder, 0)),
+      -1
+    );
+    setEditing({ ...newTemplate(), sortOrder: maxSortOrder + 1 });
     setIsNew(true);
   };
 
@@ -217,6 +238,7 @@ export default function AdminVoicesPage() {
         engine === "chirp3-hd" && editing.effectsProfileId && editing.effectsProfileId.length > 0
           ? [...editing.effectsProfileId]
           : null,
+      sortOrder: normalizeSortOrder(editing.sortOrder, isNew ? list.length : 0),
       updatedAt: t,
       createdAt: isNew ? t : editing.createdAt,
     };
@@ -421,6 +443,19 @@ export default function AdminVoicesPage() {
               />
             </label>
             <label className="block">
+              <span className="text-xs text-stone-600">노출 순서 (0 이상, 낮을수록 먼저 표시)</span>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={normalizeSortOrder(editing.sortOrder, 0)}
+                onChange={(e) =>
+                  setEditing({ ...editing, sortOrder: Math.max(0, Math.floor(Number(e.target.value) || 0)) })
+                }
+                className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block">
               <span className="text-xs text-stone-600">
                 템플릿 말하기 속도 배율 (0.25~4) — 사용자 속도와 곱해짐
               </span>
@@ -598,7 +633,8 @@ export default function AdminVoicesPage() {
                 <p className="mt-1 line-clamp-2 text-xs text-stone-600">{v.geminiPrompt.trim()}</p>
               )}
               <p className="mt-1 text-xs text-stone-500">
-                lang: {v.languageCode} · 속도×{v.speakingRate.toFixed(2)} · 피치 {v.pitch} · 볼륨{" "}
+                순서 {normalizeSortOrder(v.sortOrder, 0)} · lang: {v.languageCode} · 속도×
+                {v.speakingRate.toFixed(2)} · 피치 {v.pitch} · 볼륨{" "}
                 {v.volumeGainDb}dB
                 {v.sampleRateHertz ? ` · ${v.sampleRateHertz}Hz` : ""}
                 {(v.ttsEngine ?? "chirp3-hd") === "chirp3-hd" && v.effectsProfileId?.length

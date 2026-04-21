@@ -95,11 +95,25 @@ export async function saveAdminTemplatesDb(list: AdminTemplate[]): Promise<void>
 }
 
 export async function getVoiceTemplatesDb(): Promise<VoiceTemplate[]> {
-  return readKv<VoiceTemplate[]>("voices", DEFAULT_VOICES);
+  const list = await readKv<VoiceTemplate[]>("voices", DEFAULT_VOICES);
+  return list.map((voice, index) => ({
+    ...voice,
+    sortOrder:
+      typeof voice.sortOrder === "number" && Number.isFinite(voice.sortOrder)
+        ? Math.max(0, Math.floor(voice.sortOrder))
+        : index,
+  }));
 }
 
 export async function saveVoiceTemplatesDb(list: VoiceTemplate[]): Promise<void> {
-  await writeKv("voices", list);
+  const normalized = list.map((voice, index) => ({
+    ...voice,
+    sortOrder:
+      typeof voice.sortOrder === "number" && Number.isFinite(voice.sortOrder)
+        ? Math.max(0, Math.floor(voice.sortOrder))
+        : index,
+  }));
+  await writeKv("voices", normalized);
 }
 
 export async function getAdminPaymentsDb(): Promise<AdminPayment[]> {
