@@ -718,7 +718,9 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
     hasAudio,
   ]);
 
-  const disabled = !title.trim() || !content.trim() || overLimit;
+  /** 광고문으로 스크립트 생성하는 흐름에서는 방송 미리보기(content)가 비어 있어도 됨. */
+  const disabled =
+    !title.trim() || overLimit || (!promoRawText.trim() && !content.trim());
   const savedSessions = useMemo<SessionWithItems[]>(() => {
     void showLoadModal;
     if (demoMode) return [];
