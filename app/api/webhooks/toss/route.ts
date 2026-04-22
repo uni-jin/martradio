@@ -58,6 +58,11 @@ export async function POST(request: NextRequest) {
   const paymentKey = typeof data.paymentKey === "string" ? data.paymentKey : undefined;
   const status = typeof data.status === "string" ? data.status : undefined;
   const approvedAt = typeof data.approvedAt === "string" ? data.approvedAt : undefined;
+  const totalAmountRaw = data.totalAmount;
+  const chargedAmountKrw =
+    typeof totalAmountRaw === "number" && Number.isFinite(totalAmountRaw) && totalAmountRaw >= 0
+      ? totalAmountRaw
+      : undefined;
   const eventId = typeof body.eventId === "string" ? body.eventId : undefined;
   const duplicate = Boolean(eventId && (await isWebhookEventProcessed(eventId)));
   const shouldProcessPaymentEvent =
@@ -78,6 +83,7 @@ export async function POST(request: NextRequest) {
       paymentKey,
       status: nextStatus,
       approvedAt,
+      chargedAmountKrw,
     });
   }
 

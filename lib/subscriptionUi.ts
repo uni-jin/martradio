@@ -48,22 +48,19 @@ export type PaymentForSubscriptionUi = {
 };
 
 /**
- * 표시용 플랜: 서버(유료) > 로컬 프로필(유료) > 최근 결제 상품(유료) > 서버 free > free
+ * 표시용 플랜: 서버 구독 스냅샷 > 로컬 프로필(세션). 결제 이력은 사용하지 않는다(구독·회원 DB와 표시 불일치 방지).
  */
 export function effectivePlanIdForSubscriptionUi(
   server: SubscriptionSnapshotLike,
   localPlanId: string | undefined | null,
-  payments: PaymentForSubscriptionUi[]
+  _payments: PaymentForSubscriptionUi[]
 ): string {
+  void _payments;
   const sp = server?.planId?.trim() ?? "";
   if (isPaidSubscriptionPlanId(sp)) return sp;
 
   const lp = (localPlanId ?? "").trim();
   if (isPaidSubscriptionPlanId(lp)) return lp;
-
-  const asc = [...payments].sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime());
-  const lastPid = asc.length ? (asc[asc.length - 1].productId ?? "").trim() : "";
-  if (isPaidSubscriptionPlanId(lastPid)) return lastPid;
 
   if (sp) return sp;
   return "free";

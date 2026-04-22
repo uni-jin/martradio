@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import AdminShell from "@/app/_components/AdminShell";
 import { getCurrentAdmin } from "@/lib/adminAuth";
 import type { AdminPayment, AdminReferrer } from "@/lib/adminData";
+import { buildUserReferrerIdMap, effectivePaymentReferrerId } from "@/lib/adminData";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 import { fetchAdminJsonCached } from "@/lib/adminClientCache";
 
@@ -50,6 +51,7 @@ export default function AdminReferrersPage() {
 
   const metricsByReferrerId = useMemo(() => {
     const m = new Map<string, { signupCount: number; paymentCount: number; paymentAmount: number }>();
+    const userRefMap = buildUserReferrerIdMap(users);
     for (const r of referrers) {
       m.set(r.id, { signupCount: 0, paymentCount: 0, paymentAmount: 0 });
     }
@@ -60,7 +62,7 @@ export default function AdminReferrersPage() {
       m.set(rid, { ...cur, signupCount: cur.signupCount + 1 });
     }
     for (const p of payments) {
-      const rid = String(p.referrerId ?? "");
+      const rid = effectivePaymentReferrerId(p, userRefMap);
       if (!rid || !m.has(rid)) continue;
       const cur = m.get(rid)!;
       m.set(rid, {

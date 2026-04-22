@@ -8,8 +8,11 @@ import {
   startOfSeoulDayIso,
   toSeoulYmd,
 } from "@/lib/subscriptionPeriod";
-import { recordAdminPaymentForSubscriptionCharge } from "@/lib/adminDataSupabase.server";
-import { getPlanAmount, isPaidPlanDowngrade } from "@/lib/subscriptionPlans";
+import {
+  recordAdminPaymentForSubscriptionCharge,
+  syncAppUserPlanIdDb,
+} from "@/lib/adminDataSupabase.server";
+import { getPlanAmount, isPaidPlanDowngrade, isPaidPlanId } from "@/lib/subscriptionPlans";
 
 type PaidPlanId = "small" | "medium" | "large";
 
@@ -361,6 +364,23 @@ export async function upsertSubscriptionAfterConfirm(params: {
       orderId: params.orderId,
       paymentKey: params.paymentKey,
     });
+    await syncAppUserPlanIdDb(params.userId, params.planId);
+    const approvedDup = new Date(params.approvedAt);
+    const dupIso = Number.isNaN(approvedDup.getTime()) ? new Date().toISOString() : approvedDup.toISOString();
+    const chargeDupKrw =
+      typeof params.chargedAmountKrw === "number" && Number.isFinite(params.chargedAmountKrw)
+        ? Math.floor(params.chargedAmountKrw)
+        : getPlanAmount(params.planId);
+    if (Number.isFinite(chargeDupKrw) && chargeDupKrw >= 0) {
+      await recordAdminPaymentForSubscriptionCharge({
+        userId: params.userId,
+        planId: params.planId,
+        orderId: params.orderId,
+        paymentKey: params.paymentKey,
+        amountKrw: chargeDupKrw,
+        paidAtIso: dupIso,
+      });
+    }
     return prev;
   }
 
@@ -419,19 +439,20 @@ export async function upsertSubscriptionAfterConfirm(params: {
     orderId: params.orderId,
     paymentKey: params.paymentKey,
   });
+  await syncAppUserPlanIdDb(params.userId, status.planId);
   const chargeKrw =
     typeof params.chargedAmountKrw === "number" && Number.isFinite(params.chargedAmountKrw)
       ? Math.floor(params.chargedAmountKrw)
       : getPlanAmount(params.planId);
-  if (chargeKrw > 0) {
-    void recordAdminPaymentForSubscriptionCharge({
+  if (Number.isFinite(chargeKrw) && chargeKrw >= 0) {
+    await recordAdminPaymentForSubscriptionCharge({
       userId: params.userId,
       planId: params.planId,
       orderId: params.orderId,
       paymentKey: params.paymentKey,
       amountKrw: chargeKrw,
       paidAtIso: approvalIso,
-    }).catch(() => {});
+    });
   }
   return status;
 }
@@ -470,6 +491,7 @@ export async function setCancelRequested(
     },
     { onConflict: "user_id" }
   );
+  await syncAppUserPlanIdDb(next.userId, next.planId);
   return migrateLegacySubscription(next);
 }
 
@@ -510,6 +532,7 @@ export async function setScheduledPlanAfterCurrentPeriod(
     },
     { onConflict: "user_id" }
   );
+  await syncAppUserPlanIdDb(next.userId, next.planId);
   return migrateLegacySubscription(next);
 }
 
@@ -546,6 +569,7 @@ export async function cancelScheduledPlanChange(userId: string): Promise<ServerS
     },
     { onConflict: "user_id" }
   );
+  await syncAppUserPlanIdDb(next.userId, next.planId);
   return migrateLegacySubscription(next);
 }
 
@@ -567,6 +591,8 @@ export async function applyPaymentStatusWebhook(params: {
   paymentKey?: string;
   status?: string;
   approvedAt?: string;
+  /** 토스 웹훅 본문의 승인 금액(원). 없으면 유료 플랜 기본 요금으로 관리자 결제 기록. */
+  chargedAmountKrw?: number;
 }): Promise<ServerSubscriptionStatus | null> {
   if (params.eventId && (await isWebhookEventProcessed(params.eventId))) {
     return null;
@@ -629,6 +655,7 @@ export async function applyPaymentStatusWebhook(params: {
   if (st === "DONE") {
     const pk = params.paymentKey?.trim();
     if (pk && prev.latestPaymentKey && prev.latestPaymentKey === pk) {
+      await syncAppUserPlanIdDb(targetUserId, prev.planId);
       if (params.eventId) {
         await db().from("subscription_processed_events").upsert(
           {
@@ -694,6 +721,24 @@ export async function applyPaymentStatusWebhook(params: {
       orderId: next.latestOrderId ?? null,
       paymentKey: next.latestPaymentKey ?? null,
     });
+    await syncAppUserPlanIdDb(targetUserId, next.planId);
+    const oid = (params.orderId ?? next.latestOrderId ?? "").trim();
+    const effectiveKey = (params.paymentKey ?? next.latestPaymentKey ?? "").trim();
+    if (oid && effectiveKey && isPaidPlanId(nextPlanId)) {
+      const fromWebhook =
+        typeof params.chargedAmountKrw === "number" && Number.isFinite(params.chargedAmountKrw)
+          ? Math.floor(params.chargedAmountKrw)
+          : NaN;
+      const amountKrw = Number.isFinite(fromWebhook) ? Math.max(0, fromWebhook) : getPlanAmount(nextPlanId);
+      await recordAdminPaymentForSubscriptionCharge({
+        userId: targetUserId,
+        planId: nextPlanId,
+        orderId: oid,
+        paymentKey: effectiveKey,
+        amountKrw,
+        paidAtIso: approvalIso,
+      });
+    }
     if (params.eventId) {
       await db().from("subscription_processed_events").upsert(
         {
@@ -734,6 +779,7 @@ export async function applyPaymentStatusWebhook(params: {
       },
       { onConflict: "user_id" }
     );
+    await syncAppUserPlanIdDb(targetUserId, "free");
     await db().from("subscription_billing_methods").delete().eq("user_id", targetUserId);
     await db().from("subscription_billing_charge_attempts").delete().eq("user_id", targetUserId);
     if (params.eventId) {
@@ -870,6 +916,7 @@ export async function adminOverrideSubscription(params: {
     orderId: finalNext.latestOrderId ?? null,
     paymentKey: finalNext.latestPaymentKey ?? null,
   });
+  await syncAppUserPlanIdDb(finalNext.userId, finalNext.planId);
   return finalNext;
 }
 
@@ -907,6 +954,7 @@ export async function terminateSubscriptionAfterBillingFailure(
   );
   await db().from("subscription_billing_methods").delete().eq("user_id", userId);
   await db().from("subscription_billing_charge_attempts").delete().eq("user_id", userId);
+  await syncAppUserPlanIdDb(userId, "free");
   return next;
 }
 

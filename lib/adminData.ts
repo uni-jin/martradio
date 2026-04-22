@@ -50,6 +50,25 @@ export type AdminPayment = {
   status?: string | null;
 };
 
+/** 결제 행에 추천인이 비어 있을 때 회원 현재 추천인으로 집계 보완(레거시 행용). */
+export function buildUserReferrerIdMap(users: Array<Record<string, unknown>>): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const u of users) {
+    const id = typeof u.id === "string" ? u.id.trim() : "";
+    const ref = typeof u.referrerId === "string" ? u.referrerId.trim() : "";
+    if (id && ref) m.set(id, ref);
+  }
+  return m;
+}
+
+export function effectivePaymentReferrerId(p: AdminPayment, userReferrerById: Map<string, string>): string {
+  const fromPay = typeof p.referrerId === "string" ? p.referrerId.trim() : "";
+  if (fromPay) return fromPay;
+  const uid = (p.userId ?? "").trim();
+  if (!uid) return "";
+  return (userReferrerById.get(uid) ?? "").trim();
+}
+
 export type AdminTemplateOption = {
   id: string;
   name: string;
@@ -212,11 +231,12 @@ export function computeTopReferrers(
   }
   const revenueByRef = new Map<string, number>();
   const paymentCountByRef = new Map<string, number>();
+  const userRefMap = buildUserReferrerIdMap(users);
   for (const p of payments) {
-    if (p.referrerId) {
-      revenueByRef.set(p.referrerId, (revenueByRef.get(p.referrerId) ?? 0) + p.amount);
-      paymentCountByRef.set(p.referrerId, (paymentCountByRef.get(p.referrerId) ?? 0) + 1);
-    }
+    const refKey = effectivePaymentReferrerId(p, userRefMap);
+    if (!refKey) continue;
+    revenueByRef.set(refKey, (revenueByRef.get(refKey) ?? 0) + p.amount);
+    paymentCountByRef.set(refKey, (paymentCountByRef.get(refKey) ?? 0) + 1);
   }
   return referrers
     .map((r) => ({

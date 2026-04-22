@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import { useAdminSession } from "@/app/_components/AdminSessionProvider";
 import type { AdminPayment, AdminReferrer } from "@/lib/adminData";
+import { buildUserReferrerIdMap, effectivePaymentReferrerId } from "@/lib/adminData";
 import { getPlanDisplayLabel } from "@/lib/auth";
 import { buildPaymentOrderNoMap } from "@/lib/adminPaymentOrderNo";
 import { billingPeriodsForPaymentHistoryOldestFirst } from "@/lib/subscriptionPeriod";
@@ -83,6 +84,8 @@ export default function AdminPaymentsPage() {
     return m;
   }, [scopedUsers]);
 
+  const userRefMap = useMemo(() => buildUserReferrerIdMap(users), [users]);
+
   const scopedPayments = useMemo(() => {
     if (!scopeReferrerId) return payments;
     return payments.filter((p) => {
@@ -91,9 +94,9 @@ export default function AdminPaymentsPage() {
       const matched =
         (uid ? userByKey.get(`id:${uid}`) : undefined) ?? (un ? userByKey.get(`un:${un}`) : undefined);
       if (matched) return true;
-      return String(p.referrerId ?? "") === scopeReferrerId;
+      return effectivePaymentReferrerId(p, userRefMap) === scopeReferrerId;
     });
-  }, [payments, scopeReferrerId, userByKey]);
+  }, [payments, scopeReferrerId, userByKey, userRefMap]);
 
   const planExpiryYmdByPaymentId = useMemo(() => {
     const byGroup = new Map<string, AdminPayment[]>();

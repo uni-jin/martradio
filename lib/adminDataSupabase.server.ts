@@ -135,6 +135,17 @@ export async function getAdminPaymentsDb(): Promise<AdminPayment[]> {
   }));
 }
 
+export async function syncAppUserPlanIdDb(userId: string, planId: string): Promise<void> {
+  const normalized =
+    planId === "small" || planId === "medium" || planId === "large" ? planId : "free";
+  const supabase = getSupabaseServerClient();
+  const row = await supabase
+    .from("app_users")
+    .update({ plan_id: normalized, updated_at: new Date().toISOString() })
+    .eq("id", userId);
+  if (row.error) throw new Error(row.error.message);
+}
+
 export async function saveAdminPaymentDb(payment: AdminPayment): Promise<void> {
   const supabase = getSupabaseServerClient();
   const row = await supabase.from("admin_payments").upsert({
@@ -275,7 +286,7 @@ export async function recordAdminPaymentForSubscriptionCharge(params: {
   amountKrw: number;
   paidAtIso: string;
 }): Promise<void> {
-  if (!Number.isFinite(params.amountKrw) || params.amountKrw <= 0) return;
+  if (!Number.isFinite(params.amountKrw) || params.amountKrw < 0) return;
   const supabase = getSupabaseServerClient();
   const u = await supabase
     .from("app_users")
@@ -290,7 +301,7 @@ export async function recordAdminPaymentForSubscriptionCharge(params: {
     userId: params.userId,
     username: u.data.username,
     productId: params.planId,
-    amount: Math.floor(params.amountKrw),
+    amount: Math.max(0, Math.floor(params.amountKrw)),
     paidAt: params.paidAtIso,
     referrerId: u.data.referrer_id,
     source: "web_checkout",

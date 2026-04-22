@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import type { AdminPayment, AdminReferrer } from "@/lib/adminData";
+import { buildUserReferrerIdMap, effectivePaymentReferrerId } from "@/lib/adminData";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 import { fetchAdminJsonCached } from "@/lib/adminClientCache";
 
@@ -27,8 +28,9 @@ function buildMonthStats(
   referrerId: string,
   year: number,
   users: Record<string, unknown>[],
-  payments: { paidAt: string; referrerId?: string | null; amount: number }[]
+  payments: AdminPayment[]
 ): MonthCell[] {
+  const userRefMap = buildUserReferrerIdMap(users);
   const months: MonthCell[] = [];
   for (let month = 1; month <= 12; month++) {
     let joins = 0;
@@ -42,7 +44,7 @@ function buildMonthStats(
     let payCount = 0;
     let paySum = 0;
     for (const p of payments) {
-      if ((p.referrerId ?? "") !== referrerId) continue;
+      if (effectivePaymentReferrerId(p, userRefMap) !== referrerId) continue;
       const lm = localYearMonth(p.paidAt);
       if (lm.year === year && lm.month === month) {
         payCount++;
