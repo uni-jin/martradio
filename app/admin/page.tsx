@@ -201,7 +201,7 @@ export default function AdminHomePage() {
         ) : (
           <>
             <section>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              <div className="grid w-full gap-3 [grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))]">
                 <KpiCard
                   label="전체/유료 회원"
                   value={`${stats.totalUsers.toLocaleString()} / ${stats.paidUsers.toLocaleString()}명`}
