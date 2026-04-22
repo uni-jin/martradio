@@ -1,6 +1,14 @@
 "use client";
 
-import { useMemo, useRef, useState, useCallback, useEffect } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { getAllSessions, saveSession } from "@/lib/store";
 import { generateId, extractYoutubeId } from "@/lib/utils";
@@ -56,6 +64,81 @@ const DEMO_PREFILL_CONTENT =
 const DEMO_PREFILL_BGM_URL = "";
 const DEMO_PREFERRED_VOICE_LABEL = "전통 시장 상인 남성";
 const DEMO_AUDIO_VERSION = "2026-04-21-1";
+
+type DemoOnboardingPhase = "pending" | 1 | 2 | 3 | 4 | "done";
+
+type SpotlightRect = { top: number; left: number; width: number; height: number };
+
+function DemoOnboardingSpotlight({
+  rect,
+  children,
+  cornerRadius = 14,
+}: {
+  rect: SpotlightRect | null;
+  children: ReactNode;
+  cornerRadius?: number;
+}) {
+  const [viewport, setViewport] = useState(() =>
+    typeof window !== "undefined" ? { w: window.innerWidth, h: window.innerHeight } : { w: 0, h: 0 }
+  );
+
+  useLayoutEffect(() => {
+    const update = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+  if (viewport.w <= 0 || viewport.h <= 0) return null;
+
+  const pad = 8;
+  const t = Math.max(0, rect.top - pad);
+  const l = Math.max(0, rect.left - pad);
+  const w = rect.width + pad * 2;
+  const h = rect.height + pad * 2;
+  const { w: vw, h: vh } = viewport;
+  const rx = Math.min(cornerRadius, w / 2, h / 2);
+
+  const holePath = `
+    M ${l + rx} ${t}
+    L ${l + w - rx} ${t}
+    A ${rx} ${rx} 0 0 1 ${l + w} ${t + rx}
+    L ${l + w} ${t + h - rx}
+    A ${rx} ${rx} 0 0 1 ${l + w - rx} ${t + h}
+    L ${l + rx} ${t + h}
+    A ${rx} ${rx} 0 0 1 ${l} ${t + h - rx}
+    L ${l} ${t + rx}
+    A ${rx} ${rx} 0 0 1 ${l + rx} ${t}
+    Z
+  `;
+
+  const pathD = `
+    M 0 0 L ${vw} 0 L ${vw} ${vh} L 0 ${vh} Z
+    ${holePath}
+  `;
+
+  return (
+    <div className="fixed inset-0 z-[100]" role="presentation">
+      <svg
+        className="pointer-events-auto fixed inset-0 h-full w-full"
+        viewBox={`0 0 ${vw} ${vh}`}
+        preserveAspectRatio="none"
+        aria-hidden
+      >
+        <path d={pathD} fill="rgba(0,0,0,0.55)" fillRule="evenodd" />
+      </svg>
+      <div
+        className="pointer-events-auto fixed bottom-3 left-1/2 z-[102] w-[min(22rem,calc(100vw-1.25rem))] -translate-x-1/2 rounded-xl border border-stone-200 bg-white px-3 py-2.5 shadow-lg"
+        role="dialog"
+        aria-modal="true"
+        aria-label="안내"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export type NewBroadcastScreenProps = {
   demoMode?: boolean;
@@ -116,6 +199,14 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   const cyclesCompletedRef = useRef(0);
   const activePlaybackGenRef = useRef(0);
   const demoAudioPreparedRef = useRef(false);
+
+  const [demoOnboardingPhase, setDemoOnboardingPhase] = useState<DemoOnboardingPhase>("pending");
+  const [demoSpotlightRect, setDemoSpotlightRect] = useState<SpotlightRect | null>(null);
+  const demoTitlePromoRef = useRef<HTMLDivElement | null>(null);
+  const demoVoiceSectionRef = useRef<HTMLElement | null>(null);
+  const demoVoiceHighlightRef = useRef<HTMLDivElement | null>(null);
+  const demoGenerateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const demoPlayButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const [user, setUser] = useState<AuthUser | null>(demoMode ? null : getCurrentUser());
   useEffect(() => {
@@ -695,8 +786,136 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
 
   useEffect(() => {
     if (!playbackSectionVisible) return;
+    if (demoMode) return;
     playbackSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [playbackSectionVisible]);
+  }, [playbackSectionVisible, demoMode]);
+
+  useEffect(() => {
+    if (!demoMode) return;
+    setDemoOnboardingPhase(1);
+  }, [demoMode]);
+
+  useEffect(() => {
+    if (!demoMode) return;
+    const active = demoOnboardingPhase !== "pending" && demoOnboardingPhase !== "done";
+    if (!active) return;
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevBodyTouch = body.style.touchAction;
+    const prevHtmlOverscroll = html.style.overscrollBehavior;
+    html.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+    body.style.overflow = "hidden";
+    body.style.touchAction = "none";
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      html.style.overscrollBehavior = prevHtmlOverscroll;
+      body.style.overflow = prevBodyOverflow;
+      body.style.touchAction = prevBodyTouch;
+    };
+  }, [demoMode, demoOnboardingPhase]);
+
+  const getDemoSpotlightElement = useCallback((): HTMLElement | null => {
+    if (!demoMode || demoOnboardingPhase === "pending" || demoOnboardingPhase === "done") return null;
+    switch (demoOnboardingPhase) {
+      case 1:
+        return demoTitlePromoRef.current;
+      case 2:
+        return demoVoiceHighlightRef.current;
+      case 3:
+        return demoGenerateButtonRef.current;
+      case 4:
+        return demoPlayButtonRef.current;
+      default:
+        return null;
+    }
+  }, [demoMode, demoOnboardingPhase]);
+
+  const updateDemoSpotlight = useCallback(() => {
+    const el = getDemoSpotlightElement();
+    if (!el) {
+      setDemoSpotlightRect(null);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) {
+      setDemoSpotlightRect(null);
+      return;
+    }
+    setDemoSpotlightRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+  }, [getDemoSpotlightElement]);
+
+  useLayoutEffect(() => {
+    if (!demoMode || demoOnboardingPhase === "pending" || demoOnboardingPhase === "done") {
+      setDemoSpotlightRect(null);
+      return;
+    }
+    const el = getDemoSpotlightElement();
+    if (!el) {
+      setDemoSpotlightRect(null);
+      return;
+    }
+    el.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });
+
+    const measure = () => {
+      const cur = getDemoSpotlightElement();
+      if (!cur) {
+        setDemoSpotlightRect(null);
+        return;
+      }
+      const r = cur.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+      setDemoSpotlightRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+    };
+
+    measure();
+    requestAnimationFrame(measure);
+    requestAnimationFrame(() => requestAnimationFrame(measure));
+    const t1 = window.setTimeout(measure, 50);
+    const t2 = window.setTimeout(measure, 200);
+    const t3 = window.setTimeout(measure, 500);
+    let cancelled = false;
+    if (typeof document !== "undefined" && document.fonts?.ready) {
+      void document.fonts.ready.then(() => {
+        if (!cancelled) measure();
+      });
+    }
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+    };
+  }, [demoMode, demoOnboardingPhase, hasAudio, getDemoSpotlightElement]);
+
+  useEffect(() => {
+    if (!demoMode || demoOnboardingPhase === "pending" || demoOnboardingPhase === "done") return;
+    const onResize = () => updateDemoSpotlight();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [demoMode, demoOnboardingPhase, updateDemoSpotlight]);
+
+  useEffect(() => {
+    if (!demoMode || demoOnboardingPhase === "pending" || demoOnboardingPhase === "done") return;
+    const el = getDemoSpotlightElement();
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => updateDemoSpotlight());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [demoMode, demoOnboardingPhase, hasAudio, getDemoSpotlightElement, updateDemoSpotlight]);
+
+  useEffect(() => {
+    if (!demoMode || demoOnboardingPhase === "pending" || demoOnboardingPhase === "done") return;
+    const run = () => updateDemoSpotlight();
+    if (document.readyState === "complete") {
+      run();
+      return;
+    }
+    window.addEventListener("load", run, { once: true });
+    return () => window.removeEventListener("load", run);
+  }, [demoMode, demoOnboardingPhase, updateDemoSpotlight]);
 
   return (
     <main className="min-h-full bg-[var(--bg)]">
@@ -732,36 +951,38 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
         <section className="mt-2 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
           <h2 className="text-2xl font-semibold text-stone-800">1. 방송 내용 입력</h2>
           <div className="mt-4 space-y-4">
-            <div>
-              <label className="text-base font-medium text-stone-700">방송 제목</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="예: 오후 3시 행사 안내 방송"
-                disabled={demoMode}
-                className="mt-1.5 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
-              />
-            </div>
-            <div>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <label htmlFor="new-broadcast-promo" className="text-base font-medium text-stone-700">
-                  광고 문자 내용
-                </label>
-                <span className="text-sm tabular-nums text-stone-500" aria-live="polite">
-                  광고문 {promoLength.toLocaleString()}
-                  {maxChars != null ? ` / ${maxChars.toLocaleString()}자` : "자"}
-                </span>
+            <div ref={demoTitlePromoRef} className="space-y-4">
+              <div>
+                <label className="text-base font-medium text-stone-700">방송 제목</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="예: 오후 3시 행사 안내 방송"
+                  disabled={demoMode}
+                  className="mt-1.5 w-full rounded-lg border border-stone-200 px-3 py-2.5 text-base text-stone-800"
+                />
               </div>
-              <textarea
-                id="new-broadcast-promo"
-                value={promoRawText}
-                onChange={(e) => setPromoRawText(e.target.value)}
-                placeholder="입력한 품목명과 단위, 가격 등을 바탕으로 방송을 자연스럽게 만들어 드립니다."
-                disabled={demoMode}
-                className="mt-1.5 min-h-[280px] w-full rounded-lg border border-stone-200 px-3 py-3 text-base leading-relaxed text-stone-800"
-              />
-              {scriptError && <p className="mt-1.5 text-base leading-relaxed text-red-600">{scriptError}</p>}
+              <div>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <label htmlFor="new-broadcast-promo" className="text-base font-medium text-stone-700">
+                    광고 문자 내용
+                  </label>
+                  <span className="text-sm tabular-nums text-stone-500" aria-live="polite">
+                    광고문 {promoLength.toLocaleString()}
+                    {maxChars != null ? ` / ${maxChars.toLocaleString()}자` : "자"}
+                  </span>
+                </div>
+                <textarea
+                  id="new-broadcast-promo"
+                  value={promoRawText}
+                  onChange={(e) => setPromoRawText(e.target.value)}
+                  placeholder="입력한 품목명과 단위, 가격 등을 바탕으로 방송을 자연스럽게 만들어 드립니다."
+                  disabled={demoMode}
+                  className="mt-1.5 min-h-[280px] w-full rounded-lg border border-stone-200 px-3 py-3 text-base leading-relaxed text-stone-800"
+                />
+                {scriptError && <p className="mt-1.5 text-base leading-relaxed text-red-600">{scriptError}</p>}
+              </div>
             </div>
             <div>
               <div className="text-base font-medium text-stone-700">
@@ -978,7 +1199,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
           )}
         </section>
 
-        <section className="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+        <section ref={demoVoiceSectionRef} className="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
           <h2 className="text-2xl font-semibold text-stone-800">3. 음성 생성</h2>
           <div id={containerId} className="h-px w-px overflow-hidden opacity-0" aria-hidden />
 
@@ -990,8 +1211,9 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
           />
 
           <div className="mt-6 border-t border-stone-100 pt-4">
-            <h3 className="text-base font-semibold text-stone-800">목소리 선택</h3>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div ref={demoVoiceHighlightRef}>
+              <h3 className="text-base font-semibold text-stone-800">목소리 선택</h3>
+              <div className="mt-2 flex flex-wrap gap-2">
               {availableGooglePresets.map((p) => (
                 <label
                   key={p.id}
@@ -1017,6 +1239,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
                   )}
                 </label>
               ))}
+              </div>
             </div>
 
             <div className="mt-4">
@@ -1083,6 +1306,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
 
             <div className="mt-5 flex justify-center">
               <button
+                ref={demoGenerateButtonRef}
                 type="button"
                 onClick={handleGenerate}
                 disabled={demoMode || isGenerating || disabled}
@@ -1183,6 +1407,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
               <div className="flex flex-col items-center gap-3">
                 <div className="flex items-center gap-3">
                   <button
+                    ref={demoPlayButtonRef}
                     type="button"
                     onClick={isPlaying ? pause : isPaused ? resumePlayback : beginPlayback}
                     disabled={!hasAudio}
@@ -1284,6 +1509,68 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
         </div>
       )}
 
+      {demoMode &&
+        demoOnboardingPhase !== "pending" &&
+        demoOnboardingPhase !== "done" &&
+        demoSpotlightRect && (
+          <DemoOnboardingSpotlight rect={demoSpotlightRect}>
+            {demoOnboardingPhase === 1 && (
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 flex-1 text-sm leading-snug text-stone-800">
+                  방송 제목과 광고 문자를 입력합니다.
+                </p>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600"
+                  onClick={() => setDemoOnboardingPhase(2)}
+                >
+                  확인
+                </button>
+              </div>
+            )}
+            {demoOnboardingPhase === 2 && (
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 flex-1 text-sm leading-snug text-stone-800">사용할 목소리를 선택합니다.</p>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600"
+                  onClick={() => setDemoOnboardingPhase(3)}
+                >
+                  확인
+                </button>
+              </div>
+            )}
+            {demoOnboardingPhase === 3 && (
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 flex-1 text-sm leading-snug text-stone-800">
+                  음성 생성으로 음성 파일을 만듭니다.
+                </p>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600"
+                  onClick={() => setDemoOnboardingPhase(4)}
+                >
+                  확인
+                </button>
+              </div>
+            )}
+            {demoOnboardingPhase === 4 && (
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 flex-1 text-sm leading-snug text-stone-800">
+                  {hasAudio ? "재생 버튼으로 들어보세요." : "음성을 불러오는 중…"}
+                </p>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-40"
+                  disabled={!hasAudio}
+                  onClick={() => setDemoOnboardingPhase("done")}
+                >
+                  확인
+                </button>
+              </div>
+            )}
+          </DemoOnboardingSpotlight>
+        )}
     </main>
   );
 }
