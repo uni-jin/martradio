@@ -1391,15 +1391,6 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
             <div ref={demoVoiceHighlightRef}>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-semibold text-stone-800">목소리 선택</h3>
-                {!isPaidSubscriber && availableGooglePresets.some((x) => x.paidOnly === true) && (
-                  <button
-                    type="button"
-                    onClick={() => setShowPaidVoiceSubscribeGuide(true)}
-                    className="rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600"
-                  >
-                    유료 목소리 사용하기
-                  </button>
-                )}
               </div>
               {showPaidVoiceSubscribeGuide && (
                 <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 px-4">
@@ -1452,10 +1443,14 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
                             value={p.id}
                             checked={googlePresetId === p.id}
                             onChange={() => {
-                              if (demoMode || paidLocked) return;
+                              if (demoMode) return;
+                              if (paidLocked) {
+                                setShowPaidVoiceSubscribeGuide(true);
+                                return;
+                              }
                               setGooglePresetId(p.id);
                             }}
-                            disabled={demoMode || paidLocked}
+                            disabled={demoMode}
                             className="h-5 w-5 border-stone-300 text-amber-600"
                           />
                           {p.paidOnly && (
