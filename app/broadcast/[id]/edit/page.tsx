@@ -15,7 +15,6 @@ import {
   SPEED_MAX,
   speedToRatePercent,
   ratePercentToSpeed,
-  TTS_LINE_BREAK_PAUSE_OPTIONS,
   normalizeTtsLineBreakPauseSeconds,
 } from "@/lib/ttsOptions";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
@@ -1194,30 +1193,6 @@ export default function EditBroadcastPage() {
                     </button>
                   ))}
                 </div>
-              </div>
-            </div>
-
-            <div className="mt-3">
-              <span className="block text-base font-medium text-stone-600">줄 간격 시간</span>
-              <p className="mt-1 text-base leading-relaxed text-stone-500">
-                방송 내용을 여러 줄로 나눴을 때, 줄과 줄 사이의 간격 시간입니다.
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {TTS_LINE_BREAK_PAUSE_OPTIONS.map((o) => (
-                  <label
-                    key={o.value}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-stone-200 px-3 py-2.5 text-base has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50"
-                  >
-                    <input
-                      type="radio"
-                      name="ttsLineBreakPause"
-                      checked={normalizeTtsLineBreakPauseSeconds(ttsBreakSeconds) === o.value}
-                      onChange={() => setTtsBreakSeconds(o.value)}
-                      className="h-5 w-5 border-stone-300 text-amber-600"
-                    />
-                    {o.label}
-                  </label>
-                ))}
               </div>
             </div>
 
