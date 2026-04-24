@@ -317,13 +317,15 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
     });
   }, [voiceListTick, user, availableGooglePresets, demoMode, isPaidSubscriber]);
 
-  const playVoicePreview = useCallback(async (dataUrl: string | null | undefined) => {
-    if (!dataUrl) return;
+  const playVoicePreview = useCallback(async (voiceId: string, previewValue: string | null | undefined) => {
+    if (!previewValue) return;
     voicePreviewResumePlayRef.current = null;
     setVoicePreviewNeedsUserPlay(false);
     const el = voicePreviewAudioRef.current;
     if (!el) return;
-    const result = await playAudioFromPreviewSource(el, dataUrl, voicePreviewBlobUrlRef);
+    const result = await playAudioFromPreviewSource(el, previewValue, voicePreviewBlobUrlRef, {
+      voiceId,
+    });
     if (result.kind === "played") return;
     if (result.kind === "autoplay_blocked") {
       voicePreviewResumePlayRef.current = async () => {
@@ -944,6 +946,31 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
     setDemoOnboardingPhase(1);
   }, [demoMode]);
 
+  useLayoutEffect(() => {
+    if (!demoMode) return;
+    if (typeof window === "undefined") return;
+    let restore: "auto" | "manual" | undefined;
+    if ("scrollRestoration" in history) {
+      restore = history.scrollRestoration;
+      history.scrollRestoration = "manual";
+    }
+    const toTop = () => {
+      window.scrollTo(0, 0);
+    };
+    toTop();
+    const raf = requestAnimationFrame(toTop);
+    const t0 = window.setTimeout(toTop, 0);
+    const t1 = window.setTimeout(toTop, 50);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+      if (restore != null) {
+        history.scrollRestoration = restore;
+      }
+    };
+  }, [demoMode]);
+
   useEffect(() => {
     if (!demoMode) return;
     const active = demoOnboardingPhase !== "pending" && demoOnboardingPhase !== "done";
@@ -1447,7 +1474,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
                                 ? undefined
                                 : "관리자 사이트에서 해당 음성의 미리듣기를 저장한 뒤 이용할 수 있습니다."
                             }
-                            onClick={() => void playVoicePreview(p.previewAudioDataUrl)}
+                            onClick={() => void playVoicePreview(p.id, p.previewAudioDataUrl)}
                             className="rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 sm:ml-auto sm:w-auto w-full"
                           >
                             미리듣기

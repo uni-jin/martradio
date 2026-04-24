@@ -50,7 +50,27 @@ async function requestPreviewAudioBlob(template: VoiceTemplate): Promise<Blob> {
   return await res.blob();
 }
 
-async function fetchPreviewAudioBlobFromUrl(url: string): Promise<Blob> {
+async function fetchVoicePreviewBlob(template: VoiceTemplate): Promise<Blob> {
+  const id = template.id?.trim();
+  if (id) {
+    const res = await fetch(`/api/public/voice-preview?voiceId=${encodeURIComponent(id)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error || `미리듣기 파일 조회 실패 (${res.status})`);
+    }
+    return await res.blob();
+  }
+  const url = template.previewAudioDataUrl?.trim();
+  if (!url) {
+    throw new Error("미리듣기가 없습니다.");
+  }
+  if (url.toLowerCase().startsWith("data:")) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("미리듣기 데이터를 읽지 못했습니다.");
+    return await res.blob();
+  }
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`미리듣기 파일 조회 실패 (${res.status})`);
   return await res.blob();
@@ -202,7 +222,7 @@ export default function AdminVoicesPage() {
       try {
         if (key !== "__editing__" && template.previewAudioDataUrl?.trim()) {
           try {
-            const existingBlob = await fetchPreviewAudioBlobFromUrl(template.previewAudioDataUrl.trim());
+            const existingBlob = await fetchVoicePreviewBlob(template);
             await playPreviewBlob(existingBlob);
             return;
           } catch {

@@ -207,13 +207,15 @@ export default function EditBroadcastPage() {
     setGooglePresetId((prev) => (prev && selectableList.some((x) => x.id === prev) ? prev : selectableList[0].id));
   }, [loaded, voiceListTick, user?.planId, availableGooglePresets, isPaidSubscriber]);
 
-  const playVoicePreview = useCallback(async (dataUrl: string | null | undefined) => {
-    if (!dataUrl) return;
+  const playVoicePreview = useCallback(async (voiceId: string, previewValue: string | null | undefined) => {
+    if (!previewValue) return;
     voicePreviewResumePlayRef.current = null;
     setVoicePreviewNeedsUserPlay(false);
     const el = voicePreviewAudioRef.current;
     if (!el) return;
-    const result = await playAudioFromPreviewSource(el, dataUrl, voicePreviewBlobUrlRef);
+    const result = await playAudioFromPreviewSource(el, previewValue, voicePreviewBlobUrlRef, {
+      voiceId,
+    });
     if (result.kind === "played") return;
     if (result.kind === "autoplay_blocked") {
       voicePreviewResumePlayRef.current = async () => {
@@ -1137,7 +1139,7 @@ export default function EditBroadcastPage() {
                                 ? undefined
                                 : "관리자 사이트에서 해당 음성의 미리듣기를 저장한 뒤 이용할 수 있습니다."
                             }
-                            onClick={() => void playVoicePreview(p.previewAudioDataUrl)}
+                            onClick={() => void playVoicePreview(p.id, p.previewAudioDataUrl)}
                             className="rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 sm:ml-auto sm:w-auto w-full"
                           >
                             미리듣기
