@@ -59,7 +59,7 @@ export default function LoginPage() {
               />
             </div>
             {(error || reasonMessage) && (
-              <p className="text-base text-red-600">{error ?? reasonMessage}</p>
+              <p className="whitespace-pre-line text-base text-red-600">{error ?? reasonMessage}</p>
             )}
             <button
               type="submit"

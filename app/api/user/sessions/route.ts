@@ -5,6 +5,18 @@ import { getValidatedUserSession } from "@/lib/userSession.server";
 
 export const runtime = "nodejs";
 
+function isMissingPlaybackSettingColumns(error: unknown): boolean {
+  const e = error as { code?: string; message?: string } | null;
+  if (!e) return false;
+  const msg = typeof e.message === "string" ? e.message : "";
+  return (
+    e.code === "42703" ||
+    msg.includes("playback_loop_mode") ||
+    msg.includes("playback_repeat_count") ||
+    msg.includes("playback_gap_seconds")
+  );
+}
+
 function mapSessionRow(row: Record<string, any>): Session {
   return {
     id: row.session_id,
@@ -34,6 +46,9 @@ function mapSessionRow(row: Record<string, any>): Session {
     ttsRate: row.tts_rate,
     ttsPitch: row.tts_pitch,
     ttsBreakSeconds: row.tts_break_seconds,
+    playbackLoopMode: row.playback_loop_mode,
+    playbackRepeatCount: row.playback_repeat_count,
+    playbackGapSeconds: row.playback_gap_seconds,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -67,7 +82,9 @@ export async function GET(req: NextRequest) {
   const sessionsRes = await sessionQuery.order("updated_at", { ascending: false });
   if (sessionsRes.error) return NextResponse.json({ error: sessionsRes.error.message }, { status: 500 });
   const sessionRows = sessionsRes.data ?? [];
-  if (sessionRows.length === 0) return NextResponse.json({ ok: true, sessions: [] });
+  if (sessionRows.length === 0) {
+    return NextResponse.json({ ok: true, userId, sessions: [] });
+  }
   const ids = sessionRows.map((x) => x.session_id);
   const itemsRes = await supabase
     .from("broadcast_items")
@@ -88,7 +105,7 @@ export async function GET(req: NextRequest) {
     const g = grouped.get(row.session_id) ?? { items: [], eventItems: [] };
     return { ...mapSessionRow(row), items: g.items, eventItems: g.eventItems };
   });
-  return NextResponse.json({ ok: true, sessions });
+  return NextResponse.json({ ok: true, userId, sessions });
 }
 
 export async function POST(req: NextRequest) {
@@ -103,7 +120,7 @@ export async function POST(req: NextRequest) {
   const items = body.items ?? [];
   const eventItems = body.eventItems ?? [];
   const supabase = getSupabaseServerClient();
-  const upsertSession = await supabase.from("broadcast_sessions").upsert({
+  const baseSessionRow = {
     owner_user_id: userId,
     session_id: session.id,
     title: session.title,
@@ -134,7 +151,21 @@ export async function POST(req: NextRequest) {
     tts_break_seconds: session.ttsBreakSeconds ?? null,
     created_at: session.createdAt,
     updated_at: session.updatedAt,
-  }, { onConflict: "owner_user_id,session_id" });
+  };
+  const extendedSessionRow = {
+    ...baseSessionRow,
+    playback_loop_mode: session.playbackLoopMode ?? null,
+    playback_repeat_count: session.playbackRepeatCount ?? null,
+    playback_gap_seconds: session.playbackGapSeconds ?? null,
+  };
+  let upsertSession = await supabase
+    .from("broadcast_sessions")
+    .upsert(extendedSessionRow, { onConflict: "owner_user_id,session_id" });
+  if (upsertSession.error && isMissingPlaybackSettingColumns(upsertSession.error)) {
+    upsertSession = await supabase
+      .from("broadcast_sessions")
+      .upsert(baseSessionRow, { onConflict: "owner_user_id,session_id" });
+  }
   if (upsertSession.error) return NextResponse.json({ error: upsertSession.error.message }, { status: 500 });
 
   const deleted = await supabase.from("broadcast_items").delete().eq("owner_user_id", userId).eq("session_id", session.id);

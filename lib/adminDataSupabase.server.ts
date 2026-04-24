@@ -53,6 +53,7 @@ const DEFAULT_VOICES: VoiceTemplate[] = [
     languageCode: "ko-KR",
     enabled: true,
     paidOnly: false,
+    previewAudioDataUrl: null,
     speakingRate: 1,
     pitch: 0,
     volumeGainDb: 0,

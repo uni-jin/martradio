@@ -29,8 +29,8 @@ USER_SESSION_SECRET=your_random_32_plus_char_secret_for_user_cookie
 ## 4) 동작 방식
 
 - 로컬 저장소(`localStorage`)는 기존과 동일하게 동작합니다.
-- 로그인된 사용자가 방송을 저장/수정하면 `/api/supabase/sessions/sync`로 자동 동기화됩니다.
-- 방송 삭제 시 Supabase에서도 같이 삭제됩니다.
+- 로그인된 사용자의 방송 저장/수정/삭제는 서버 API(`/api/user/sessions`)를 통해 Supabase와 동기화됩니다.
+- 서버에서 사용자 세션을 검증한 뒤 `owner_user_id` 기준으로만 조회/저장/삭제됩니다.
 
 ## 5) 확인 방법
 

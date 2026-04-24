@@ -11,7 +11,50 @@ import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 import { fetchAdminJsonCached, invalidateAdminClientCache } from "@/lib/adminClientCache";
 
 /** 미리듣기에 사용하는 고정 문구 */
-const PREVIEW_TEXT = "안내 방송 테스트입니다.";
+const PREVIEW_TEXT = "안녕하세요, 고객님들! 할인 방송 테스트입니다.";
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("Data URL 변환에 실패했습니다."));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Data URL 변환에 실패했습니다."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const dataUrl = await blobToDataUrl(blob);
+  const idx = dataUrl.indexOf(",");
+  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+}
+
+function withCacheVersionParam(url: string, version: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}v=${encodeURIComponent(version)}`;
+}
+
+async function requestPreviewAudioBlob(template: VoiceTemplate): Promise<Blob> {
+  const synth = buildGoogleTtsSynthesizeBody(PREVIEW_TEXT, clampForPreview(template), 1, 0.5);
+  const res = await fetch("/api/tts-google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(googleTtsApiJsonBody(synth)),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { error?: string }).error || `오류 ${res.status}`);
+  }
+  return await res.blob();
+}
+
+async function fetchPreviewAudioBlobFromUrl(url: string): Promise<Blob> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`미리듣기 파일 조회 실패 (${res.status})`);
+  return await res.blob();
+}
 
 function clampForPreview(t: VoiceTemplate): VoiceTemplate {
   return {
@@ -126,6 +169,23 @@ export default function AdminVoicesPage() {
     }
   }, []);
 
+  const persist = useCallback((next: VoiceTemplate[]) => {
+    const sorted = sortVoiceTemplates(next);
+    setList(sorted);
+    invalidateAdminClientCache("/api/admin/data/voices");
+    void fetch("/api/admin/data/voices", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voices: sorted }),
+    });
+    try {
+      window.dispatchEvent(new CustomEvent("mart-voice-templates-updated"));
+    } catch {
+      // noop
+    }
+  }, []);
+
   const previewTemplate = useCallback(
     async (template: VoiceTemplate, key: string) => {
       if (!template.voice.trim()) {
@@ -140,18 +200,52 @@ export default function AdminVoicesPage() {
       setPreviewError(null);
       setPreviewingKey(key);
       try {
-        const t = clampForPreview(template);
-        const synth = buildGoogleTtsSynthesizeBody(PREVIEW_TEXT, t, 1, 0.5);
-        const res = await fetch("/api/tts-google", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(googleTtsApiJsonBody(synth)),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error((data as { error?: string }).error || `오류 ${res.status}`);
+        if (key !== "__editing__" && template.previewAudioDataUrl?.trim()) {
+          try {
+            const existingBlob = await fetchPreviewAudioBlobFromUrl(template.previewAudioDataUrl.trim());
+            await playPreviewBlob(existingBlob);
+            return;
+          } catch {
+            // 기존 파일 재생 실패 시에만 재생성 폴백
+          }
         }
-        const blob = await res.blob();
+
+        const blob = await requestPreviewAudioBlob(template);
+        const audioBase64 = await blobToBase64(blob);
+        let storedUrl: string | null = null;
+        if (template.id.trim()) {
+          const up = await fetch("/api/admin/data/voices/preview", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ voiceId: template.id, audioBase64 }),
+          });
+          const upData = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
+          if (!up.ok || !upData.url) {
+            throw new Error(upData.error || "미리듣기 파일 저장에 실패했습니다.");
+          }
+          storedUrl = upData.url;
+        }
+        const t = new Date().toISOString();
+        const previewAudioDataUrl = storedUrl
+          ? withCacheVersionParam(storedUrl, t)
+          : await blobToDataUrl(blob);
+        if (key !== "__editing__") {
+          persist(
+            list.map((x) =>
+              x.id === template.id ? { ...x, previewAudioDataUrl, updatedAt: t } : x
+            )
+          );
+        } else {
+          if (!isNew && list.some((x) => x.id === template.id)) {
+            persist(
+              list.map((x) =>
+                x.id === template.id ? { ...x, previewAudioDataUrl, updatedAt: t } : x
+              )
+            );
+          }
+          setEditing((prev) => (prev ? { ...prev, previewAudioDataUrl } : prev));
+        }
         await playPreviewBlob(blob);
       } catch (e) {
         setPreviewError(e instanceof Error ? e.message : String(e));
@@ -159,7 +253,7 @@ export default function AdminVoicesPage() {
         setPreviewingKey(null);
       }
     },
-    [playPreviewBlob]
+    [isNew, list, persist, playPreviewBlob]
   );
 
   const loadGoogleVoices = async () => {
@@ -174,23 +268,6 @@ export default function AdminVoicesPage() {
       setGoogleError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoadingVoices(false);
-    }
-  };
-
-  const persist = (next: VoiceTemplate[]) => {
-    const sorted = sortVoiceTemplates(next);
-    setList(sorted);
-    invalidateAdminClientCache("/api/admin/data/voices");
-    void fetch("/api/admin/data/voices", {
-      method: "PUT",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ voices: sorted }),
-    });
-    try {
-      window.dispatchEvent(new CustomEvent("mart-voice-templates-updated"));
-    } catch {
-      // noop
     }
   };
 

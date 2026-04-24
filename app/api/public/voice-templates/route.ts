@@ -4,11 +4,12 @@ import { getVoiceTemplatesDb } from "@/lib/adminDataSupabase.server";
 export async function GET(req: NextRequest) {
   const planId = req.nextUrl.searchParams.get("planId")?.trim() || "free";
   const isPaidPlan = planId === "small" || planId === "medium" || planId === "large";
+  const includePaidPreview = req.nextUrl.searchParams.get("includePaidPreview") === "1";
   try {
     const all = await getVoiceTemplatesDb();
     const voices = all
       .filter((v) => v.enabled)
-      .filter((v) => (v.paidOnly ? isPaidPlan : true))
+      .filter((v) => (v.paidOnly ? isPaidPlan || includePaidPreview : true))
       .slice()
       .sort((a, b) => {
         const aOrder =

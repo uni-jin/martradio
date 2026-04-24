@@ -50,6 +50,9 @@ export interface Session {
   ttsRate?: string;
   ttsPitch?: string;
   ttsBreakSeconds?: number;
+  playbackLoopMode?: "infinite" | "count" | null;
+  playbackRepeatCount?: number | null;
+  playbackGapSeconds?: number | null;
   createdAt: string;
   updatedAt: string;
 }

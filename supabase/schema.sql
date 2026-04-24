@@ -167,6 +167,9 @@ create table if not exists public.broadcast_sessions (
   tts_rate text null,
   tts_pitch text null,
   tts_break_seconds numeric null,
+  playback_loop_mode text null check (playback_loop_mode in ('infinite', 'count')),
+  playback_repeat_count integer null check (playback_repeat_count between 1 and 999),
+  playback_gap_seconds integer null check (playback_gap_seconds between 0 and 3600),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (owner_user_id, session_id)
@@ -174,6 +177,13 @@ create table if not exists public.broadcast_sessions (
 
 create index if not exists idx_broadcast_sessions_owner_updated
   on public.broadcast_sessions (owner_user_id, updated_at desc);
+
+alter table public.broadcast_sessions
+  add column if not exists playback_loop_mode text null check (playback_loop_mode in ('infinite', 'count'));
+alter table public.broadcast_sessions
+  add column if not exists playback_repeat_count integer null check (playback_repeat_count between 1 and 999);
+alter table public.broadcast_sessions
+  add column if not exists playback_gap_seconds integer null check (playback_gap_seconds between 0 and 3600);
 
 create table if not exists public.broadcast_items (
   owner_user_id text not null,

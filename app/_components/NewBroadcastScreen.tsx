@@ -28,8 +28,6 @@ import {
   SPEED_MIN,
   SPEED_MAX,
   speedToRatePercent,
-  TTS_LINE_BREAK_PAUSE_OPTIONS,
-  normalizeTtsLineBreakPauseSeconds,
 } from "@/lib/ttsOptions";
 import { useYoutubeSegmentPlayer } from "@/lib/youtubeSegmentPlayer";
 import {
@@ -37,12 +35,17 @@ import {
   useVoiceTemplatesForPlan,
 } from "@/lib/voiceTemplatesClient";
 import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
+import { useRouter } from "next/navigation";
 import { setYoutubeEmbedIframeVolume } from "@/lib/youtubeEmbedVolume";
 import {
   type BroadcastPlaybackCommitSnapshot,
   buildBroadcastPlaybackCommitSnapshot,
   broadcastPlaybackCommitMatches,
 } from "@/lib/broadcastPlaybackCommit";
+import {
+  isAudioAutoplayBlockedError,
+  playAudioFromPreviewSource,
+} from "@/lib/voicePreviewPlayback";
 
 function digitsOnly(v: string) {
   return v.replace(/\D/g, "");
@@ -117,6 +120,10 @@ function DemoOnboardingSpotlight({
     M 0 0 L ${vw} 0 L ${vw} ${vh} L 0 ${vh} Z
     ${holePath}
   `;
+  const panelWidth = Math.min(352, vw - 20);
+  const panelLeft = Math.min(Math.max(10, l + w / 2 - panelWidth / 2), vw - panelWidth - 10);
+  const preferredTop = t - 12 - 50;
+  const panelTop = preferredTop >= 10 ? preferredTop : Math.min(t + h + 12, vh - 60);
 
   return (
     <div className="fixed inset-0 z-[100]" role="presentation">
@@ -129,7 +136,8 @@ function DemoOnboardingSpotlight({
         <path d={pathD} fill="rgba(0,0,0,0.55)" fillRule="evenodd" />
       </svg>
       <div
-        className="pointer-events-auto fixed bottom-3 left-1/2 z-[102] w-[min(22rem,calc(100vw-1.25rem))] -translate-x-1/2 rounded-xl border border-stone-200 bg-white px-3 py-2.5 shadow-lg"
+        className="pointer-events-auto fixed z-[102] rounded-xl border border-stone-200 bg-white px-3 py-2.5 shadow-lg"
+        style={{ top: `${panelTop}px`, left: `${panelLeft}px`, width: `${panelWidth}px` }}
         role="dialog"
         aria-modal="true"
         aria-label="안내"
@@ -168,7 +176,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   const [isPaused, setIsPaused] = useState(false);
   const [speed, setSpeed] = useState<number>(DEFAULT_TTS.speed);
   const [googlePresetId, setGooglePresetId] = useState<string>("");
-  const [ttsBreakSeconds, setTtsBreakSeconds] = useState<number>(DEFAULT_TTS.breakSeconds);
+  const [ttsBreakSeconds] = useState<number>(DEFAULT_TTS.breakSeconds);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [bgmVolume, setBgmVolume] = useState(40);
@@ -178,12 +186,19 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   /** 사이클 사이 무음 대기 (초) */
   const [gapSeconds, setGapSeconds] = useState(0);
   const [showLoadModal, setShowLoadModal] = useState(false);
-  /** 음성 생성 성공 후에만 노출. 방송·음악(2)·음성(3) 영역 변경 시 숨김(다시 생성해야 표시). */
+  const [showPaidVoiceSubscribeGuide, setShowPaidVoiceSubscribeGuide] = useState(false);
+  /** 음성 생성 성공 후에만 노출. 값이 바뀌면 숨기지 않고 접힌 상태로 유지한다. */
   const [playbackSectionVisible, setPlaybackSectionVisible] = useState(demoMode);
+  const [playbackSectionOpen, setPlaybackSectionOpen] = useState(demoMode);
+  const lastGeneratedPromoRawRef = useRef<string>("");
   const committedPlaybackRef = useRef<BroadcastPlaybackCommitSnapshot | null>(null);
   const playbackSectionRef = useRef<HTMLElement | null>(null);
 
   const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voicePreviewBlobUrlRef = useRef<string | null>(null);
+  const voicePreviewResumePlayRef = useRef<(() => Promise<void>) | null>(null);
+  const [voicePreviewNeedsUserPlay, setVoicePreviewNeedsUserPlay] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const blobUrlRef = useRef<string | null>(null);
   const onBgmEndRef = useRef<() => void>(() => {});
@@ -208,12 +223,14 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   const demoGenerateButtonRef = useRef<HTMLButtonElement | null>(null);
   const demoPlayButtonRef = useRef<HTMLButtonElement | null>(null);
 
+  const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(demoMode ? null : getCurrentUser());
   useEffect(() => {
     if (demoMode) return;
     void refreshCurrentUser().then(setUser);
   }, [demoMode]);
   const [voiceListTick, setVoiceListTick] = useState(0);
+  const [sessionListTick, setSessionListTick] = useState(0);
   useEffect(() => {
     const onV = () => {
       clearVoiceTemplatesClientCache();
@@ -222,7 +239,14 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
     window.addEventListener("mart-voice-templates-updated", onV);
     return () => window.removeEventListener("mart-voice-templates-updated", onV);
   }, []);
+  useEffect(() => {
+    if (demoMode) return;
+    const onSessions = () => setSessionListTick((t) => t + 1);
+    window.addEventListener("mart-sessions-updated", onSessions);
+    return () => window.removeEventListener("mart-sessions-updated", onSessions);
+  }, [demoMode]);
   const effectivePlanId = demoMode ? "large" : user?.planId;
+  const isPaidSubscriber = effectivePlanId === "small" || effectivePlanId === "medium" || effectivePlanId === "large";
   const availableGooglePresets = useVoiceTemplatesForPlan(effectivePlanId, voiceListTick);
   const planMaxChars: number | null = useMemo(() => getMaxCharsForUser(user), [user]);
   const maxChars: number | null = demoMode ? DEMO_MAX_CHARS : planMaxChars;
@@ -282,14 +306,49 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   useEffect(() => {
     const list = availableGooglePresets;
     if (list.length === 0) return;
+    const selectableList = isPaidSubscriber ? list : list.filter((x) => x.paidOnly !== true);
+    if (selectableList.length === 0) return;
     setGooglePresetId((prev) => {
       if (demoMode) {
-        const preferred = list.find((x) => x.label === DEMO_PREFERRED_VOICE_LABEL);
-        return preferred?.id ?? list[0].id;
+        const preferred = selectableList.find((x) => x.label === DEMO_PREFERRED_VOICE_LABEL);
+        return preferred?.id ?? selectableList[0].id;
       }
-      return prev && list.some((x) => x.id === prev) ? prev : list[0].id;
+      return prev && selectableList.some((x) => x.id === prev) ? prev : selectableList[0].id;
     });
-  }, [voiceListTick, user, availableGooglePresets, demoMode]);
+  }, [voiceListTick, user, availableGooglePresets, demoMode, isPaidSubscriber]);
+
+  const playVoicePreview = useCallback(async (dataUrl: string | null | undefined) => {
+    if (!dataUrl) return;
+    voicePreviewResumePlayRef.current = null;
+    setVoicePreviewNeedsUserPlay(false);
+    const el = voicePreviewAudioRef.current;
+    if (!el) return;
+    const result = await playAudioFromPreviewSource(el, dataUrl, voicePreviewBlobUrlRef);
+    if (result.kind === "played") return;
+    if (result.kind === "autoplay_blocked") {
+      voicePreviewResumePlayRef.current = async () => {
+        const a = voicePreviewAudioRef.current;
+        if (!a) return;
+        try {
+          a.currentTime = 0;
+          await a.play();
+          setVoicePreviewNeedsUserPlay(false);
+          voicePreviewResumePlayRef.current = null;
+        } catch (e2) {
+          setGenerateError(
+            isAudioAutoplayBlockedError(e2)
+              ? "미리듣기 재생을 시작할 수 없습니다. 화면을 한 번 클릭한 뒤 다시 시도해 주세요."
+              : e2 instanceof Error
+                ? e2.message
+                : "미리듣기 재생에 실패했습니다."
+          );
+        }
+      };
+      setVoicePreviewNeedsUserPlay(true);
+      return;
+    }
+    setGenerateError(result.message);
+  }, []);
 
   const previewSrc = useMemo(() => {
     if (!youtubeId) return null;
@@ -386,6 +445,9 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
       }
+      if (voicePreviewBlobUrlRef.current) {
+        URL.revokeObjectURL(voicePreviewBlobUrlRef.current);
+      }
     };
   }, []);
 
@@ -447,7 +509,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
       const now = new Date().toISOString();
       const session: Session = {
         id: sessionId,
-        title: title.trim(),
+        title: title.trim() || "방송 제목 없음",
         promoRawText: promoRawText.trim() || null,
         eventType: "FREE",
         customOpening: undefined,
@@ -472,6 +534,9 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
         voice: gp.voice,
         ttsRate: speedToRatePercent(speed),
         ttsBreakSeconds,
+        playbackLoopMode: loopMode,
+        playbackRepeatCount: Math.max(1, Math.floor(repeatCount) || 1),
+        playbackGapSeconds: Math.max(0, Math.floor(gapSeconds) || 0),
         bgmVolume,
         createdAt: now,
         updatedAt: now,
@@ -480,6 +545,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
       if (!demoMode) {
         void saveSession(session, [], []);
       }
+      lastGeneratedPromoRawRef.current = rawTextTrimmed;
       await refreshHasAudio();
       committedPlaybackRef.current = buildBroadcastPlaybackCommitSnapshot({
         content: effectiveContent,
@@ -496,6 +562,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
         ttsBreakSeconds,
       });
       setPlaybackSectionVisible(true);
+      setPlaybackSectionOpen(true);
     } catch (e) {
       setGenerateError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -629,12 +696,62 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
   );
 
   const beginPlayback = useCallback(() => {
+    if (!demoMode) {
+      const now = new Date().toISOString();
+      const existing = getAllSessions().find((s) => s.id === sessionId) ?? null;
+      if (existing) {
+        const updated: Session = {
+          ...existing,
+          playbackLoopMode: loopMode,
+          playbackRepeatCount: Math.max(1, Math.floor(repeatCount) || 1),
+          playbackGapSeconds: Math.max(0, Math.floor(gapSeconds) || 0),
+          lastPlayedAt: now,
+          updatedAt: now,
+        };
+        void saveSession(updated, existing.items, existing.eventItems ?? []);
+      } else {
+        const fallback: Session = {
+          id: sessionId,
+          title: title.trim() || "제목 없음",
+          promoRawText: promoRawText.trim() || null,
+          eventType: "FREE",
+          customOpening: undefined,
+          scheduledAt: null,
+          scheduledEndAt: null,
+          repeatMinutes: 5,
+          itemSuffixIsnida: true,
+          lastGeneratedAt: null,
+          lastPlayedAt: now,
+          latestAudioUrl: null,
+          generatedText: content.trim() || null,
+          musicMode,
+          bgmYoutubeUrl: bgmUrl.trim() || null,
+          bgmStartSeconds:
+            bgmPlayRange === "segment"
+              ? totalSecondsFromMinSec(bgmStartMin, bgmStartSec)
+              : null,
+          bgmEndSeconds:
+            bgmPlayRange === "segment" ? totalSecondsFromMinSec(bgmEndMin, bgmEndSec) : null,
+          ttsProvider: "google",
+          ttsVoiceTemplateId: googlePresetId || null,
+          ttsRate: speedToRatePercent(speed),
+          ttsBreakSeconds,
+          playbackLoopMode: loopMode,
+          playbackRepeatCount: Math.max(1, Math.floor(repeatCount) || 1),
+          playbackGapSeconds: Math.max(0, Math.floor(gapSeconds) || 0),
+          bgmVolume,
+          createdAt: now,
+          updatedAt: now,
+        };
+        void saveSession(fallback, [], []);
+      }
+    }
     playbackGenRef.current += 1;
     const gen = playbackGenRef.current;
     cyclesCompletedRef.current = 0;
     pausedAtRef.current = 0;
     void play(gen, 0);
-  }, [play]);
+  }, [bgmEndMin, bgmEndSec, bgmPlayRange, bgmStartMin, bgmStartSec, bgmUrl, bgmVolume, content, demoMode, gapSeconds, googlePresetId, loopMode, play, promoRawText, repeatCount, sessionId, speed, title, ttsBreakSeconds, musicMode]);
 
   const pause = useCallback(() => {
     // 일시정지: currentTime을 유지하고, 재생 루프(onended)만 끊는다.
@@ -678,7 +795,13 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
     if (demoMode) {
       if (hasAudio) {
         setPlaybackSectionVisible(true);
+        setPlaybackSectionOpen(true);
       }
+      return;
+    }
+    const hasCommittedPlayback = Boolean(committedPlaybackRef.current && hasAudio);
+    if (!hasCommittedPlayback) {
+      setPlaybackSectionVisible(false);
       return;
     }
     const cur = buildBroadcastPlaybackCommitSnapshot({
@@ -695,14 +818,18 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
       ttsSpeed: speed,
       ttsBreakSeconds,
     });
-    if (broadcastPlaybackCommitMatches(committedPlaybackRef.current, cur)) {
+    const snapshotMatched = broadcastPlaybackCommitMatches(committedPlaybackRef.current, cur);
+    const promoMatched = promoRawText.trim() === lastGeneratedPromoRawRef.current;
+    if (snapshotMatched && promoMatched) {
       setPlaybackSectionVisible(true);
       return;
     }
-    setPlaybackSectionVisible(false);
+    setPlaybackSectionVisible(true);
+    setPlaybackSectionOpen(false);
     stopRef.current();
   }, [
     content,
+    promoRawText,
     bgmVolume,
     bgmUrl,
     musicMode,
@@ -720,15 +847,16 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
 
   /** 광고문으로 스크립트 생성하는 흐름에서는 방송 미리보기(content)가 비어 있어도 됨. */
   const disabled =
-    !title.trim() || overLimit || (!promoRawText.trim() && !content.trim());
+    overLimit || (!promoRawText.trim() && !content.trim());
   const savedSessions = useMemo<SessionWithItems[]>(() => {
     void showLoadModal;
+    void sessionListTick;
     if (demoMode) return [];
     if (typeof window === "undefined") return [];
     const all = getAllSessions();
     const visibleLimit = getVisibleSessionCountForUser(user);
     return visibleLimit == null ? all : all.slice(0, visibleLimit);
-  }, [showLoadModal, user, demoMode]);
+  }, [showLoadModal, user, demoMode, sessionListTick]);
 
   const handleLoadSession = useCallback((session: SessionWithItems) => {
     committedPlaybackRef.current = null;
@@ -737,6 +865,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
     setPromoRawText(loadedPromoRawText);
     setContent(session.generatedText ?? "");
     lastScriptSourceRef.current = loadedPromoRawText.trim();
+    lastGeneratedPromoRawRef.current = loadedPromoRawText.trim();
     const bv = session.bgmVolume;
     setBgmVolume(
       bv != null && Number.isFinite(Number(bv))
@@ -760,6 +889,24 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
       setBgmStartSec("");
       setBgmEndMin("");
       setBgmEndSec("");
+    }
+    const hasPlaybackHistory = Boolean(session.lastPlayedAt);
+    if (!hasPlaybackHistory) {
+      setLoopMode("count");
+      setRepeatCount(1);
+      setGapSeconds(0);
+    } else {
+      setLoopMode(session.playbackLoopMode === "infinite" ? "infinite" : "count");
+      setRepeatCount(
+        session.playbackRepeatCount != null && Number.isFinite(Number(session.playbackRepeatCount))
+          ? Math.max(1, Math.floor(Number(session.playbackRepeatCount)))
+          : 1
+      );
+      setGapSeconds(
+        session.playbackGapSeconds != null && Number.isFinite(Number(session.playbackGapSeconds))
+          ? Math.max(0, Math.floor(Number(session.playbackGapSeconds)))
+          : 0
+      );
     }
     setShowLoadModal(false);
   }, []);
@@ -968,7 +1115,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
               <div>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <label htmlFor="new-broadcast-promo" className="text-base font-medium text-stone-700">
-                    광고 문자 내용
+                    상품 정보(상품명, 단위, 판매가) 입력
                   </label>
                   <span className="text-sm tabular-nums text-stone-500" aria-live="polite">
                     광고문 {promoLength.toLocaleString()}
@@ -1211,37 +1358,123 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
             onLoadedMetadata={() => setDuration(audioRef.current?.duration ?? 0)}
             onDurationChange={() => setDuration(audioRef.current?.duration ?? 0)}
           />
+          <audio ref={voicePreviewAudioRef} className="hidden" preload="auto" />
 
           <div className="mt-6 border-t border-stone-100 pt-4">
             <div ref={demoVoiceHighlightRef}>
-              <h3 className="text-base font-semibold text-stone-800">목소리 선택</h3>
-              <div className="mt-2 flex flex-wrap gap-2">
-              {availableGooglePresets.map((p) => (
-                <label
-                  key={p.id}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-stone-200 px-3 py-2.5 text-base has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50"
-                >
-                  <input
-                    type="radio"
-                    name="googlePreset"
-                    value={p.id}
-                    checked={googlePresetId === p.id}
-                    onChange={() => {
-                      if (demoMode) return;
-                      setGooglePresetId(p.id);
-                    }}
-                    disabled={demoMode}
-                    className="h-5 w-5 border-stone-300 text-amber-600"
-                  />
-                  <span>{p.label}</span>
-                  {p.paidOnly && (
-                    <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-700">
-                      유료
-                    </span>
-                  )}
-                </label>
-              ))}
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-semibold text-stone-800">목소리 선택</h3>
+                {!isPaidSubscriber && availableGooglePresets.some((x) => x.paidOnly === true) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowPaidVoiceSubscribeGuide(true)}
+                    className="rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600"
+                  >
+                    유료 목소리 사용하기
+                  </button>
+                )}
               </div>
+              {showPaidVoiceSubscribeGuide && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 px-4">
+                  <div className="w-full max-w-sm rounded-xl border border-amber-200 bg-white p-4 shadow-xl">
+                  <p className="text-sm text-stone-800">
+                    다양한 목소리를 이용하려면 유료 구독이 필요합니다.
+                    <br />
+                    구독 화면으로 이동하시겠어요?
+                  </p>
+                    <div className="mt-4 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowPaidVoiceSubscribeGuide(false)}
+                        className="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+                      >
+                        닫기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPaidVoiceSubscribeGuide(false);
+                          router.push("/pricing");
+                        }}
+                        className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                      >
+                        이동
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {availableGooglePresets.map((p) => {
+                  const paidLocked = !isPaidSubscriber && p.paidOnly === true;
+                  const demoPaidPreviewOnly = demoMode && p.paidOnly === true;
+                  return (
+                    <div
+                      key={p.id}
+                      className={`rounded-lg border px-3 py-2.5 text-base ${
+                        googlePresetId === p.id && !paidLocked
+                          ? "border-amber-500 bg-amber-50"
+                          : "border-stone-200"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="radio"
+                            name="googlePreset"
+                            value={p.id}
+                            checked={googlePresetId === p.id}
+                            onChange={() => {
+                              if (demoMode || paidLocked) return;
+                              setGooglePresetId(p.id);
+                            }}
+                            disabled={demoMode || paidLocked}
+                            className="h-5 w-5 border-stone-300 text-amber-600"
+                          />
+                          {p.paidOnly && (
+                            <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-700">
+                              유료
+                            </span>
+                          )}
+                          <span>{p.label}</span>
+                        </label>
+                        {(paidLocked || demoPaidPreviewOnly) && (
+                          <button
+                            type="button"
+                            disabled={!p.previewAudioDataUrl}
+                            title={
+                              p.previewAudioDataUrl
+                                ? undefined
+                                : "관리자 사이트에서 해당 음성의 미리듣기를 저장한 뒤 이용할 수 있습니다."
+                            }
+                            onClick={() => void playVoicePreview(p.previewAudioDataUrl)}
+                            className="rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50 enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 sm:ml-auto sm:w-auto w-full"
+                          >
+                            미리듣기
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {voicePreviewNeedsUserPlay && (
+                <div
+                  className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+                  role="status"
+                >
+                  <span className="min-w-0 flex-1">
+                    브라우저 정책으로 자동 재생이 제한되었습니다. 아래를 누르면 바로 들을 수 있습니다.
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                    onClick={() => void voicePreviewResumePlayRef.current?.()}
+                  >
+                    재생하기
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="mt-4">
@@ -1278,34 +1511,6 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
               </div>
             </div>
 
-            <div className="mt-3">
-              <span className="block text-base font-medium text-stone-600">줄 간격 시간</span>
-              <p className="mt-1 text-base leading-relaxed text-stone-500">
-                방송 내용을 여러 줄로 나눴을 때, 줄과 줄 사이의 간격 시간입니다.
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {TTS_LINE_BREAK_PAUSE_OPTIONS.map((o) => (
-                  <label
-                    key={o.value}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-stone-200 px-3 py-2.5 text-base has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50"
-                  >
-                    <input
-                      type="radio"
-                      name="ttsLineBreakPause"
-                      checked={normalizeTtsLineBreakPauseSeconds(ttsBreakSeconds) === o.value}
-                      onChange={() => {
-                        if (demoMode) return;
-                        setTtsBreakSeconds(o.value);
-                      }}
-                      disabled={demoMode}
-                      className="h-5 w-5 border-stone-300 text-amber-600"
-                    />
-                    {o.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-
             <div className="mt-5 flex justify-center">
               <button
                 ref={demoGenerateButtonRef}
@@ -1318,16 +1523,16 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
               </button>
             </div>
             {generateError && <p className="mt-2 text-base leading-relaxed text-red-600">{generateError}</p>}
-            {hasAudio && !generateError && playbackSectionVisible && (
+            {hasAudio && !generateError && playbackSectionVisible && playbackSectionOpen && (
               <p className="mt-2 text-center text-base leading-relaxed text-green-700">
                 오디오가 준비되었습니다. 아래 재생 영역을 확인해 주세요.
                 <br />
                 방송 내용이나 음악이 바뀌면 다시 생성해야 합니다.
               </p>
             )}
-            {hasAudio && !generateError && !playbackSectionVisible && (
+            {hasAudio && !generateError && playbackSectionVisible && !playbackSectionOpen && (
               <p className="mt-2 text-center text-base leading-relaxed text-amber-800">
-                방송 내용이 변경되었습니다. 음성 생성을 다시 해주세요.
+                광고 문자 내용 또는 방송 설정이 변경되었습니다. 음성 생성을 다시 해주세요.
               </p>
             )}
           </div>
@@ -1335,7 +1540,19 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
 
         {playbackSectionVisible && (
           <section ref={playbackSectionRef} className="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-            <h2 className="text-2xl font-semibold text-stone-800">4. 재생</h2>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-2xl font-semibold text-stone-800">4. 재생</h2>
+              <button
+                type="button"
+                onClick={() => setPlaybackSectionOpen((prev) => !prev)}
+                className="rounded-lg border border-stone-300 px-3 py-2 text-base font-medium text-stone-700 hover:bg-stone-50"
+                aria-expanded={playbackSectionOpen}
+              >
+                {playbackSectionOpen ? "접기" : "펼치기"}
+              </button>
+            </div>
+            {playbackSectionOpen && (
+            <>
             <div className="mt-6 max-w-md space-y-3 border-t border-stone-100 pt-4">
               <p className="text-base font-semibold text-stone-800">반복 방식</p>
               <div className="flex flex-wrap gap-4 text-base text-stone-700">
@@ -1463,6 +1680,8 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
                 )}
               </div>
             </div>
+            </>
+            )}
           </section>
         )}
       </div>
@@ -1519,7 +1738,8 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
             {demoOnboardingPhase === 1 && (
               <div className="flex items-center justify-between gap-3">
                 <p className="min-w-0 flex-1 text-sm leading-snug text-stone-800">
-                  방송 제목과 광고 문자를 입력합니다.
+                  <span className="mr-1 font-semibold text-amber-700">1/4</span>
+                  방송 제목과 상품 정보를 입력합니다.
                 </p>
                 <button
                   type="button"
@@ -1532,7 +1752,10 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
             )}
             {demoOnboardingPhase === 2 && (
               <div className="flex items-center justify-between gap-3">
-                <p className="min-w-0 flex-1 text-sm leading-snug text-stone-800">사용할 목소리를 선택합니다.</p>
+                <p className="min-w-0 flex-1 text-sm leading-snug text-stone-800">
+                  <span className="mr-1 font-semibold text-amber-700">2/4</span>
+                  사용할 목소리를 선택합니다.
+                </p>
                 <button
                   type="button"
                   className="shrink-0 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600"
@@ -1545,6 +1768,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
             {demoOnboardingPhase === 3 && (
               <div className="flex items-center justify-between gap-3">
                 <p className="min-w-0 flex-1 text-sm leading-snug text-stone-800">
+                  <span className="mr-1 font-semibold text-amber-700">3/4</span>
                   음성 생성으로 음성 파일을 만듭니다.
                 </p>
                 <button
@@ -1559,6 +1783,7 @@ export function NewBroadcastScreen({ demoMode = false }: NewBroadcastScreenProps
             {demoOnboardingPhase === 4 && (
               <div className="flex items-center justify-between gap-3">
                 <p className="min-w-0 flex-1 text-sm leading-snug text-stone-800">
+                  <span className="mr-1 font-semibold text-amber-700">4/4</span>
                   {hasAudio ? "재생 버튼으로 들어보세요." : "음성을 불러오는 중…"}
                 </p>
                 <button

@@ -76,6 +76,11 @@ async function readAuthMe(): Promise<(AuthUser & Partial<StoredUser>) | null> {
   return data.user ?? null;
 }
 
+function invalidateBroadcastSessionCache() {
+  if (typeof window === "undefined") return;
+  void import("./store").then((m) => m.resetBroadcastSessionsCache());
+}
+
 export async function refreshCurrentUser(opts?: { force?: boolean }): Promise<AuthUser | null> {
   const force = opts?.force === true;
   if (!force && currentUserCache && Date.now() - currentUserFetchedAt < USER_CACHE_TTL_MS) {
@@ -85,6 +90,7 @@ export async function refreshCurrentUser(opts?: { force?: boolean }): Promise<Au
     return refreshUserInFlight;
   }
   refreshUserInFlight = (async () => {
+    const beforeId = currentUserCache?.id ?? null;
     const me = await readAuthMe();
     currentUserCache = me
       ? {
@@ -96,6 +102,10 @@ export async function refreshCurrentUser(opts?: { force?: boolean }): Promise<Au
         }
       : null;
     currentUserFetchedAt = Date.now();
+    const afterId = currentUserCache?.id ?? null;
+    if (beforeId !== afterId) {
+      invalidateBroadcastSessionCache();
+    }
     return currentUserCache;
   })();
   try {
@@ -106,10 +116,15 @@ export async function refreshCurrentUser(opts?: { force?: boolean }): Promise<Au
 }
 
 export function saveUser(user: AuthUser | null) {
+  const beforeId = currentUserCache?.id ?? null;
+  const afterId = user?.id ?? null;
   currentUserCache = user;
   currentUserFetchedAt = Date.now();
   refreshUserInFlight = null;
   if (user) lastSessionErrorCode = null;
+  if (beforeId !== afterId) {
+    invalidateBroadcastSessionCache();
+  }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("mart-auth-updated"));
   }
@@ -121,7 +136,7 @@ export function getLastSessionErrorCode(): UserSessionErrorCode | null {
 
 export function getSessionErrorMessage(code: UserSessionErrorCode | null): string {
   if (code === "session_replaced") {
-    return "중복 로그인으로 로그아웃되었습니다. 다시 로그인해 주세요.";
+    return "중복 로그인으로 로그아웃되었습니다.\n다시 로그인해 주세요.";
   }
   if (code === "session_expired") {
     return "24시간 동안 활동이 없어 세션이 만료되었습니다. 다시 로그인해 주세요.";

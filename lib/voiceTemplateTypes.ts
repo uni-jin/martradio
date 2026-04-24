@@ -20,6 +20,8 @@ export type VoiceTemplate = {
   enabled: boolean;
   /** true면 유료 플랜에만 노출 */
   paidOnly?: boolean;
+  /** 관리자 화면에서만 생성·저장되는 미리듣기 오디오 URL(또는 Data URL). 사용자 화면은 값이 있을 때만 재생. */
+  previewAudioDataUrl?: string | null;
   /** 사용자 노출 순서 (오름차순) */
   sortOrder?: number;
   /**

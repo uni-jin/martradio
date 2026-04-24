@@ -83,7 +83,7 @@ export default function AdminPromoScriptPromptsPage() {
   return (
     <AdminShell title="프롬프트 관리">
       <p className="mb-4 text-sm leading-relaxed text-stone-600">
-        프로모션 문자 → 방송 대본 생성 시 OpenAI에 보내는 프롬프트 템플릿입니다. 아래 치환자는 반드시 포함해야
+        프로모션 문자 → 방송 대본 생성 시 Gemini에 보내는 프롬프트 템플릿입니다. 아래 치환자는 반드시 포함해야
         합니다.
       </p>
       <ul className="mb-4 list-inside list-disc text-sm text-stone-600">

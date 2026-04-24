@@ -11,10 +11,13 @@ export function clearVoiceTemplatesClientCache(): void {
 
 export async function fetchVoiceTemplatesForPlan(planId: string | undefined): Promise<VoiceTemplate[]> {
   const key = planId ?? "free";
+  const includePaidPreview = key === "free";
   const hit = cache.get(key);
   if (hit) return hit;
   try {
-    const res = await fetch(`/api/public/voice-templates?planId=${encodeURIComponent(key)}`, {
+    const q = new URLSearchParams({ planId: key });
+    if (includePaidPreview) q.set("includePaidPreview", "1");
+    const res = await fetch(`/api/public/voice-templates?${q.toString()}`, {
       cache: "no-store",
     });
     const data = (await res.json().catch(() => ({}))) as { voices?: VoiceTemplate[] };

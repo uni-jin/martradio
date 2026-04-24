@@ -1,27 +1,57 @@
 "use client";
 
 import type { Session, SessionWithItems, BroadcastItem } from "./types";
+
 let sessionsCache: SessionWithItems[] = [];
 let loading = false;
 let loaded = false;
+/** `GET /api/user/sessions`에 해당하는 `owner_user_id`. 로그아웃·불일치 시 null */
+let cacheOwnerUserId: string | null = null;
+let loadGeneration = 0;
 
 function notifySessionsUpdated() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("mart-sessions-updated"));
 }
 
+/** 로그인/로그아웃·세션 갱신으로 사용자가 바뀌었을 때 캐시를 비우고 다시 불러오게 한다. */
+export function resetBroadcastSessionsCache() {
+  loadGeneration += 1;
+  sessionsCache = [];
+  loaded = false;
+  cacheOwnerUserId = null;
+  loading = false;
+  notifySessionsUpdated();
+}
+
 async function refreshFromServer() {
+  const myGen = loadGeneration;
   if (loading) return;
   loading = true;
   try {
     const res = await fetch("/api/user/sessions", { cache: "no-store" });
-    if (!res.ok) return;
-    const data = (await res.json().catch(() => ({}))) as { sessions?: SessionWithItems[] };
+    if (myGen !== loadGeneration) return;
+    if (!res.ok) {
+      sessionsCache = [];
+      cacheOwnerUserId = null;
+      loaded = true;
+      notifySessionsUpdated();
+      return;
+    }
+    const data = (await res.json().catch(() => ({}))) as {
+      sessions?: SessionWithItems[];
+      userId?: string;
+    };
+    if (myGen !== loadGeneration) return;
+    const uid = typeof data.userId === "string" && data.userId ? data.userId : null;
     sessionsCache = data.sessions ?? [];
+    cacheOwnerUserId = uid;
     loaded = true;
     notifySessionsUpdated();
   } finally {
-    loading = false;
+    if (myGen === loadGeneration) {
+      loading = false;
+    }
   }
 }
 
