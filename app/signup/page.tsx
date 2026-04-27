@@ -30,6 +30,8 @@ export default function SignupPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agreedTerms, setAgreedTerms] = useState(false);
+  const [agreedPrivacy, setAgreedPrivacy] = useState(false);
   const hasRequestedPhoneVerification = sentCode !== null;
 
   const referrerTriggerLabel =
@@ -101,6 +103,10 @@ export default function SignupPage() {
     }
     if (password !== passwordConfirm) {
       setError("비밀번호와 비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+    if (!agreedTerms || !agreedPrivacy) {
+      setError("이용약관과 개인정보처리방침에 동의해 주세요.");
       return;
     }
 
@@ -289,6 +295,36 @@ export default function SignupPage() {
                   현재 선택 가능한 활성 추천인이 없습니다. 추천인 없이 가입할 수 있습니다.
                 </p>
               )}
+            </div>
+            <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+              <label className="flex items-start gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={agreedTerms}
+                  onChange={(e) => setAgreedTerms(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <Link href="/legal/terms" target="_blank" className="font-medium text-amber-700 hover:underline">
+                    이용약관
+                  </Link>
+                  에 동의합니다. (필수)
+                </span>
+              </label>
+              <label className="mt-2 flex items-start gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={agreedPrivacy}
+                  onChange={(e) => setAgreedPrivacy(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <Link href="/legal/privacy" target="_blank" className="font-medium text-amber-700 hover:underline">
+                    개인정보처리방침
+                  </Link>
+                  에 동의합니다. (필수)
+                </span>
+              </label>
             </div>
 
             {error && <p className="text-base text-red-600">{error}</p>}

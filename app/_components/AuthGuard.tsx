@@ -19,6 +19,7 @@ const PUBLIC_PATHS = ["/login", "/signup", "/admin/login"];
 function isUserPublicPath(path: string): boolean {
   if (PUBLIC_PATHS.includes(path)) return true;
   if (path.startsWith("/demo")) return true;
+  if (path.startsWith("/legal")) return true;
   return false;
 }
 

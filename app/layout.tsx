@@ -4,6 +4,7 @@ import "./globals.css";
 import AuthGuard from "./_components/AuthGuard";
 import ClientTopBar from "./_components/ClientTopBar";
 import ScrollToTopOnRoute from "./_components/ScrollToTopOnRoute";
+import ClientFooter from "./_components/ClientFooter";
 
 const notoSansKr = Noto_Sans_KR({
   subsets: ["latin"],
@@ -30,6 +31,7 @@ export default function RootLayout({
             <ScrollToTopOnRoute />
             {children}
           </div>
+          <ClientFooter />
         </AuthGuard>
       </body>
     </html>

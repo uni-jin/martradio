@@ -156,9 +156,6 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        <p className="mt-10 text-center text-sm text-stone-400">
-          Copyright ©UNIWIZ. All rights reserved.
-        </p>
       </div>
     </main>
   );

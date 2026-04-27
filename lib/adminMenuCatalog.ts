@@ -41,7 +41,10 @@ export const ADMIN_MENU_GROUPS: AdminMenuGroupDef[] = [
   },
   {
     groupTitle: "설정",
-    items: [{ href: "/admin/settings/prompts", label: "프롬프트 관리" }],
+    items: [
+      { href: "/admin/settings/prompts", label: "프롬프트 관리" },
+      { href: "/admin/settings/legal", label: "약관 관리" },
+    ],
   },
 ];
 
