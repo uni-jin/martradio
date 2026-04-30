@@ -97,6 +97,9 @@ type GoogleVoiceRow = {
   ssmlGender?: string;
 };
 
+let googleVoicesCache: GoogleVoiceRow[] | null = null;
+let googleVoicesInFlight: Promise<GoogleVoiceRow[]> | null = null;
+
 function newTemplate(): VoiceTemplate {
   const t = new Date().toISOString();
   return {
@@ -280,16 +283,31 @@ export default function AdminVoicesPage() {
   );
 
   const loadGoogleVoices = async () => {
+    if (googleVoicesCache) {
+      setGoogleVoices(googleVoicesCache);
+      return;
+    }
+    if (googleVoicesInFlight) {
+      const list = await googleVoicesInFlight;
+      setGoogleVoices(list);
+      return;
+    }
     setLoadingVoices(true);
     setGoogleError(null);
     try {
-      const res = await fetch("/api/tts-google/voices?languageCode=ko-KR");
-      const data = (await res.json()) as { voices?: GoogleVoiceRow[]; error?: string };
-      if (!res.ok) throw new Error(data.error || "목록을 불러오지 못했습니다.");
-      setGoogleVoices(data.voices ?? []);
+      googleVoicesInFlight = (async () => {
+        const res = await fetch("/api/tts-google/voices?languageCode=ko-KR");
+        const data = (await res.json()) as { voices?: GoogleVoiceRow[]; error?: string };
+        if (!res.ok) throw new Error(data.error || "목록을 불러오지 못했습니다.");
+        return data.voices ?? [];
+      })();
+      const list = await googleVoicesInFlight;
+      googleVoicesCache = list;
+      setGoogleVoices(list);
     } catch (e) {
       setGoogleError(e instanceof Error ? e.message : String(e));
     } finally {
+      googleVoicesInFlight = null;
       setLoadingVoices(false);
     }
   };

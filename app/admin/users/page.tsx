@@ -145,31 +145,18 @@ export default function AdminUsersPage() {
   useEffect(() => {
     let canceled = false;
     void (async () => {
-      const [refData, usersData, payData] = await Promise.all([
-        fetchAdminJsonCached<{ referrers?: AdminReferrer[] }>("/api/admin/referrers"),
-        fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
-        fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
-      ]);
+      const data = await fetchAdminJsonCached<{
+        referrers?: AdminReferrer[];
+        users?: Record<string, unknown>[];
+        payments?: AdminPayment[];
+        subscriptions?: SubscriptionSnapshot[];
+      }>("/api/admin/users/overview");
       if (!canceled) {
-        setReferrers(Array.isArray(refData.referrers) ? refData.referrers : []);
-        setUsers(Array.isArray(usersData.users) ? usersData.users : []);
-        setPayments(Array.isArray(payData.payments) ? payData.payments : []);
-      }
-    })();
-    return () => {
-      canceled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/subscription/admin/subscriptions", { credentials: "include" });
-        const data = await res.json().catch(() => ({}));
-        if (cancelled || !res.ok || data?.ok !== true || !Array.isArray(data.subscriptions)) return;
+        setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+        setUsers(Array.isArray(data.users) ? data.users : []);
+        setPayments(Array.isArray(data.payments) ? data.payments : []);
         const next = new Map<string, SubscriptionSnapshot>();
-        for (const raw of data.subscriptions as Record<string, unknown>[]) {
+        for (const raw of Array.isArray(data.subscriptions) ? data.subscriptions : []) {
           if (!raw || typeof raw.userId !== "string" || typeof raw.planId !== "string") continue;
           next.set(raw.userId, {
             userId: raw.userId,
@@ -186,12 +173,10 @@ export default function AdminUsersPage() {
           });
         }
         setSubsByUserId(next);
-      } catch {
-        // noop
       }
     })();
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, []);
 

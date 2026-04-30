@@ -10,7 +10,7 @@ import {
   refreshCurrentUser,
   type PlanId,
 } from "@/lib/auth";
-import { fetchAdminSession, getCurrentAdmin, logoutAdmin } from "@/lib/adminAuth";
+import { getCurrentAdmin, logoutAdmin } from "@/lib/adminAuth";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 
 export default function ClientTopBar() {
@@ -27,13 +27,7 @@ export default function ClientTopBar() {
       const isAdminPath = (pathname ?? "").startsWith("/admin");
       if (isAdminPath) {
         const cached = getCurrentAdmin();
-        if (cached?.username) {
-          setAdminId(cached.username);
-        }
-        void (async () => {
-          const admin = (await fetchAdminSession()) ?? getCurrentAdmin();
-          setAdminId(admin?.username ?? null);
-        })();
+        setAdminId(cached?.username ?? null);
         setUserEmail(null);
         setPlanId(undefined);
         return;

@@ -4,6 +4,7 @@ import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
 const USER_SESSION_COOKIE = "mart-radio-user-session";
 const USER_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const USER_SESSION_LAST_SEEN_WRITE_INTERVAL_MS = 60 * 1000;
 
 type SessionTokenPayload = {
   userId: string;
@@ -116,11 +117,13 @@ export async function getValidatedUserSession(): Promise<UserSessionValidationRe
     return failure("session_expired", "세션이 만료되었습니다. 다시 로그인해 주세요.");
   }
 
-  await supabase
-    .from("app_user_sessions")
-    .update({ last_seen_at: new Date().toISOString() })
-    .eq("session_id", payload.sessionId)
-    .is("revoked_at", null);
+  if (Date.now() - lastSeenAt >= USER_SESSION_LAST_SEEN_WRITE_INTERVAL_MS) {
+    await supabase
+      .from("app_user_sessions")
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq("session_id", payload.sessionId)
+      .is("revoked_at", null);
+  }
 
   return { ok: true, userId: payload.userId, sessionId: payload.sessionId };
 }

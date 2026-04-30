@@ -122,7 +122,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     setAdminOk(null);
     setUserResolved(false);
     void (async () => {
-      const user = await refreshCurrentUser({ force: true });
+      const user = await refreshCurrentUser();
       if (!user) {
         const code = getLastSessionErrorCode();
         if (code) router.replace(`/login?reason=${encodeURIComponent(code)}`);

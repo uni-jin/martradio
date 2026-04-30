@@ -5,7 +5,6 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import AdminShell from "@/app/_components/AdminShell";
 import {
-  computeTopReferrers,
   type AdminPayment,
   type AdminDashboardStats,
   type AdminReferrer,
@@ -88,58 +87,28 @@ export default function AdminHomePage() {
   useEffect(() => {
     let canceled = false;
     void (async () => {
-      const [refData, usersData, prodData, payData, voiceData] = await Promise.all([
-        fetchAdminJsonCached<{ referrers?: AdminReferrer[] }>("/api/admin/referrers"),
-        fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
-        fetchAdminJsonCached<{ products?: { id: string; name: string }[] }>("/api/admin/data/products").catch(
-          () => ({ products: [] })
-        ),
-        fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
-        fetchAdminJsonCached<{ voices?: { paidOnly?: boolean; enabled?: boolean }[] }>("/api/admin/data/voices"),
-      ]);
-      const list = Array.isArray(refData.referrers) ? refData.referrers : [];
-      const loadedUsers = Array.isArray(usersData.users) ? usersData.users : [];
-      const loadedProducts = Array.isArray(prodData.products) ? prodData.products : [];
-      const loadedPayments = Array.isArray(payData.payments) ? payData.payments : [];
-      const voices = Array.isArray(voiceData.voices) ? voiceData.voices : [];
+      const data = await fetchAdminJsonCached<{
+        referrers?: AdminReferrer[];
+        users?: Record<string, unknown>[];
+        products?: { id: string; name: string }[];
+        payments?: AdminPayment[];
+        voices?: { paidOnly?: boolean; enabled?: boolean }[];
+        stats?: AdminDashboardStats;
+      }>("/api/admin/dashboard");
+      const list = Array.isArray(data.referrers) ? data.referrers : [];
+      const loadedUsers = Array.isArray(data.users) ? data.users : [];
+      const loadedProducts = Array.isArray(data.products) ? data.products : [];
+      const loadedPayments = Array.isArray(data.payments) ? data.payments : [];
+      const voices = Array.isArray(data.voices) ? data.voices : [];
       if (canceled) return;
       setReferrers(list);
       setUsers(loadedUsers);
       setProducts(loadedProducts);
       setPayments(loadedPayments);
       setVoicesPaidOnlyCount(voices.filter((v) => v.paidOnly === true).length);
-      const paidUsers = loadedUsers.filter((u) => String(u.planId ?? "free") !== "free").length;
-      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
-      const paymentsThisMonth = loadedPayments.filter((p) => new Date(p.paidAt).getTime() >= monthStart).length;
-      const totalRevenue = loadedPayments.reduce((sum, p) => sum + p.amount, 0);
-      const planMap = new Map<string, number>();
-      for (const u of loadedUsers) {
-        const k = String(u.planId ?? "free");
-        planMap.set(k, (planMap.get(k) ?? 0) + 1);
+      if (data.stats) {
+        setStats(data.stats);
       }
-      setStats({
-        totalUsers: loadedUsers.length,
-        paidUsers,
-        paymentCount: loadedPayments.length,
-        totalRevenue,
-        paymentsThisMonth,
-        referrersTotal: list.length,
-        referrersActive: list.filter((r) => r.isActive).length,
-        templatesTotal: 0,
-        templatesPaidOnly: 0,
-        productsActive: loadedProducts.filter((p: any) => p.isActive !== false).length,
-        voicesEnabled: voices.filter((v) => v.enabled !== false).length,
-        voicesTotal: voices.length,
-        payments7d: loadedPayments.filter(
-          (p) => new Date(p.paidAt).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000
-        ).length,
-        revenue7d: loadedPayments
-          .filter((p) => new Date(p.paidAt).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000)
-          .reduce((sum, p) => sum + p.amount, 0),
-        planBreakdown: [...planMap.entries()].map(([key, count]) => ({ key, label: key, count })),
-        topReferrers: computeTopReferrers(list, loadedUsers, loadedPayments),
-        recentPayments: loadedPayments.slice().sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime()).slice(0, 10),
-      });
     })();
     return () => {
       canceled = true;

@@ -49,19 +49,17 @@ export default function AdminPaymentsPage() {
   useEffect(() => {
     let canceled = false;
     void (async () => {
-      const [refData, userData, payData, prodData] = await Promise.all([
-        fetchAdminJsonCached<{ referrers?: AdminReferrer[] }>("/api/admin/referrers"),
-        fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
-        fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
-        fetchAdminJsonCached<{
-          products?: { id: string; name: string; priceMonthly: number; isActive?: boolean }[];
-        }>("/api/admin/data/products").catch(() => ({ products: [] })),
-      ]);
+      const data = await fetchAdminJsonCached<{
+        referrers?: AdminReferrer[];
+        users?: Record<string, unknown>[];
+        payments?: AdminPayment[];
+        products?: { id: string; name: string; priceMonthly: number; isActive?: boolean }[];
+      }>("/api/admin/users/overview");
       if (!canceled) {
-        setReferrers(Array.isArray(refData.referrers) ? refData.referrers : []);
-        setUsers(Array.isArray(userData.users) ? userData.users : []);
-        setPayments(Array.isArray(payData.payments) ? payData.payments : []);
-        setProducts(Array.isArray(prodData.products) ? prodData.products : []);
+        setReferrers(Array.isArray(data.referrers) ? data.referrers : []);
+        setUsers(Array.isArray(data.users) ? data.users : []);
+        setPayments(Array.isArray(data.payments) ? data.payments : []);
+        setProducts(Array.isArray(data.products) ? data.products : []);
       }
     })();
     return () => {
