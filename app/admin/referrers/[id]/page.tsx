@@ -10,7 +10,7 @@ import type { AdminReferrer } from "@/lib/adminData";
 export default function AdminReferrerDetailPage() {
   const params = useParams();
   const id = String(params.id ?? "");
-  const isSuper = getCurrentAdmin()?.role === "admin";
+  const isSuper = getCurrentAdmin()?.role === "super";
 
   const [referrer, setReferrer] = useState<AdminReferrer | null | undefined>(undefined);
   const [resetMsg, setResetMsg] = useState<string | null>(null);

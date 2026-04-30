@@ -31,6 +31,20 @@ export function adminPathAllowedForReferrer(
   return false;
 }
 
+export function adminPathAllowedByMenu(pathname: string, allowed: string[] | null | undefined): boolean {
+  const list = allowed ?? [];
+  const p = normalizeAdminPath(pathname);
+  for (const raw of list) {
+    const h = normalizeAdminPath(raw);
+    if (h === "/admin") {
+      if (p === "/admin") return true;
+      continue;
+    }
+    if (p === h || p.startsWith(`${h}/`)) return true;
+  }
+  return false;
+}
+
 export function pickReferrerAdminFallbackPath(allowed: string[] | null | undefined): string {
   const a = allowed ?? [];
   if (a.some((x) => normalizeAdminPath(x) === "/admin")) return "/admin";

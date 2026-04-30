@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminApi, requireSuperAdminApi } from "@/lib/requireAdminApi.server";
+import { requireAdminApi, requireVoiceTemplateWriteApi } from "@/lib/requireAdminApi.server";
 import { getAdminTemplatesDb, saveAdminTemplatesDb } from "@/lib/adminDataSupabase.server";
 
 export async function GET() {
@@ -14,7 +14,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const gate = await requireSuperAdminApi();
+  const gate = await requireVoiceTemplateWriteApi();
   if (gate instanceof NextResponse) return gate;
   const body = (await req.json().catch(() => ({}))) as { templates?: unknown };
   if (!Array.isArray(body.templates)) {

@@ -9,6 +9,10 @@ export type AdminMenuGroupDef = {
   items: AdminMenuLeaf[];
 };
 
+export const ADMIN_PRODUCTS_HREF = "/admin/products";
+export const ADMIN_PROMPTS_HREF = "/admin/settings/prompts";
+export const ADMIN_PERMISSION_MANAGEMENT_HREF = "/admin/settings/referrer-permissions";
+
 /**
  * 관리자 권한 관리(체크박스) 및 AdminShell과 동일한 depth1/2 구조.
  * hiddenPathPrefixes 전용 경로는 별도 leaf로 포함합니다.
@@ -36,13 +40,13 @@ export const ADMIN_MENU_GROUPS: AdminMenuGroupDef[] = [
     groupTitle: "콘텐츠 관리",
     items: [
       { href: "/admin/voices", label: "음성 템플릿 관리" },
-      { href: "/admin/products", label: "상품 관리" },
+      { href: ADMIN_PRODUCTS_HREF, label: "상품 관리" },
     ],
   },
   {
     groupTitle: "설정",
     items: [
-      { href: "/admin/settings/prompts", label: "프롬프트 관리" },
+      { href: ADMIN_PROMPTS_HREF, label: "프롬프트 관리" },
       { href: "/admin/settings/legal", label: "약관 관리" },
     ],
   },

@@ -55,7 +55,7 @@ export default function AdminPaymentsPage() {
         fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
         fetchAdminJsonCached<{
           products?: { id: string; name: string; priceMonthly: number; isActive?: boolean }[];
-        }>("/api/admin/data/products"),
+        }>("/api/admin/data/products").catch(() => ({ products: [] })),
       ]);
       if (!canceled) {
         setReferrers(Array.isArray(refData.referrers) ? refData.referrers : []);

@@ -91,7 +91,9 @@ export default function AdminHomePage() {
       const [refData, usersData, prodData, payData, voiceData] = await Promise.all([
         fetchAdminJsonCached<{ referrers?: AdminReferrer[] }>("/api/admin/referrers"),
         fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
-        fetchAdminJsonCached<{ products?: { id: string; name: string }[] }>("/api/admin/data/products"),
+        fetchAdminJsonCached<{ products?: { id: string; name: string }[] }>("/api/admin/data/products").catch(
+          () => ({ products: [] })
+        ),
         fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
         fetchAdminJsonCached<{ voices?: { paidOnly?: boolean; enabled?: boolean }[] }>("/api/admin/data/voices"),
       ]);

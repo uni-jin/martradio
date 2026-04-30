@@ -11,7 +11,7 @@ export async function referrerSessionCanAccessHref(
   session: VerifiedAdminSession,
   href: string
 ): Promise<boolean> {
-  if (session.role === "admin") return true;
+  if (session.role === "super" || session.role === "admin") return true;
   const normalized = href.replace(/\/$/, "") || "/";
   const allowed = await getEffectiveAllowedHrefsForReferrerSession();
   return allowed.some((h) => {

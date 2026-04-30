@@ -3,9 +3,12 @@
 import { useEffect, useState } from "react";
 import AdminShell from "@/app/_components/AdminShell";
 import type { AdminTemplate } from "@/lib/adminData";
+import { getCurrentAdmin } from "@/lib/adminAuth";
 import { fetchAdminJsonCached, invalidateAdminClientCache } from "@/lib/adminClientCache";
 
 export default function AdminTemplatesPage() {
+  const session = getCurrentAdmin();
+  const canWrite = session?.role === "super" || (session?.role === "admin" && session.canManageVoiceTemplates === true);
   const [templates, setTemplates] = useState<AdminTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -120,15 +123,17 @@ export default function AdminTemplatesPage() {
 
   return (
     <AdminShell title="">
-      <div className="mb-4 flex justify-start">
-        <button
-          type="button"
-          onClick={openAddModal}
-          className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900"
-        >
-          방송 템플릿 추가
-        </button>
-      </div>
+      {canWrite ? (
+        <div className="mb-4 flex justify-start">
+          <button
+            type="button"
+            onClick={openAddModal}
+            className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-900"
+          >
+            방송 템플릿 추가
+          </button>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-2">
         {loading ? <p className="text-sm text-stone-500">불러오는 중…</p> : null}
@@ -179,22 +184,24 @@ export default function AdminTemplatesPage() {
                   유료 사용자 전용
                 </label>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPendingDeleteId(t.id)}
-                  className="rounded-lg border border-red-300 px-2 py-1 text-xs text-red-600"
-                >
-                  삭제
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openEditModal(t)}
-                  className="rounded-lg border border-stone-300 px-2 py-1 text-xs text-stone-700 hover:bg-stone-50"
-                >
-                  수정
-                </button>
-              </div>
+              {canWrite ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPendingDeleteId(t.id)}
+                    className="rounded-lg border border-red-300 px-2 py-1 text-xs text-red-600"
+                  >
+                    삭제
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openEditModal(t)}
+                    className="rounded-lg border border-stone-300 px-2 py-1 text-xs text-stone-700 hover:bg-stone-50"
+                  >
+                    수정
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         ))}

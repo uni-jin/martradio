@@ -4,7 +4,7 @@ import {
   getReferrerAdminAllowedHrefsDb,
   setReferrerAdminAllowedHrefsDb,
 } from "@/lib/adminDataSupabase.server";
-import { getSuperAdminUsernameNormalized } from "@/lib/adminCredentials.server";
+import { getAdminUsernameNormalized, getSuperAdminUsernameNormalized } from "@/lib/adminCredentials.server";
 import { ensureMartradioDataDir } from "@/lib/martradioDataDir.server";
 import { collectAssignableMenuHrefs, REFERRER_ADMIN_PASSWORD_HREF } from "@/lib/adminMenuCatalog";
 import { hashAdminPassword, verifyAdminPassword } from "@/lib/adminPasswordCrypto.server";
@@ -261,8 +261,8 @@ export async function createReferrerRecord(input: {
   if (!isValidLoginId(input.loginId)) {
     return { ok: false, error: "추천인 ID는 영문·숫자만 사용할 수 있으며 2~64자여야 합니다." };
   }
-  if (loginId === getSuperAdminUsernameNormalized()) {
-    return { ok: false, error: "최고 관리자 아이디와 동일한 추천인 ID는 사용할 수 없습니다." };
+  if (loginId === getSuperAdminUsernameNormalized() || loginId === getAdminUsernameNormalized()) {
+    return { ok: false, error: "관리자 아이디와 동일한 추천인 ID는 사용할 수 없습니다." };
   }
   const dup = await findReferrerByLoginId(loginId);
   if (dup) {

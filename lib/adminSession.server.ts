@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const ADMIN_SESSION_COOKIE = "mr_admin_session";
 
-export type AdminSessionRole = "admin" | "referrer_admin";
+export type AdminSessionRole = "super" | "admin" | "referrer_admin";
 
 export type VerifiedAdminSession = {
   username: string;
@@ -64,7 +64,8 @@ export function verifyAdminSessionToken(token: string, secret: string): Verified
   if (typeof parsed.exp !== "number" || !Number.isFinite(parsed.exp) || parsed.exp <= Date.now()) {
     return null;
   }
-  const role: AdminSessionRole = parsed.r === "referrer_admin" ? "referrer_admin" : "admin";
+  const role: AdminSessionRole =
+    parsed.r === "super" || parsed.r === "admin" || parsed.r === "referrer_admin" ? parsed.r : "admin";
   const referrerId =
     role === "referrer_admin" && typeof parsed.rid === "string" && parsed.rid.trim() ? parsed.rid.trim() : null;
   return { username: parsed.u.trim(), role, referrerId };

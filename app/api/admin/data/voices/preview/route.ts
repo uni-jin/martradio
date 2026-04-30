@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSuperAdminApi } from "@/lib/requireAdminApi.server";
+import { requireVoiceTemplateWriteApi } from "@/lib/requireAdminApi.server";
 import { getSupabaseServerClient } from "@/lib/supabaseServer";
 
 const PREVIEW_BUCKET = "voice-previews";
@@ -11,7 +11,7 @@ function decodeAudioBase64(raw: string): Buffer {
 }
 
 export async function POST(req: NextRequest) {
-  const gate = await requireSuperAdminApi();
+  const gate = await requireVoiceTemplateWriteApi();
   if (gate instanceof NextResponse) return gate;
 
   const body = (await req.json().catch(() => ({}))) as {

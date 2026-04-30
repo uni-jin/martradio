@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getSuperAdminUsernameNormalized, verifyAdminCredentials } from "@/lib/adminCredentials.server";
+import {
+  getAdminUsernameNormalized,
+  getSuperAdminUsernameNormalized,
+  verifyAdminCredentials,
+  verifySuperAdminCredentials,
+} from "@/lib/adminCredentials.server";
 import { ADMIN_SESSION_COOKIE, getAdminSessionSecret, signAdminSessionPayload } from "@/lib/adminSession.server";
 import { appendSecurityAudit } from "@/lib/securityAudit.server";
 import { verifyReferrerCredentials } from "@/lib/referrerStore.server";
@@ -34,9 +39,31 @@ export async function POST(request: NextRequest) {
 
   const ip = clientIp(request);
 
-  const superOk = verifyAdminCredentials(username, password);
+  const superOk = verifySuperAdminCredentials(username, password);
   if (superOk) {
     const u = getSuperAdminUsernameNormalized();
+    const token = signAdminSessionPayload({ username: u, role: "super", referrerId: null }, secret);
+    const jar = await cookies();
+    jar.set(ADMIN_SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+    await appendSecurityAudit({ type: "admin_login_ok", username: u, ip });
+    return NextResponse.json({
+      ok: true,
+      username: u,
+      role: "super" as const,
+      mustChangePassword: false,
+      allowedHrefs: null,
+    });
+  }
+
+  const adminOk = verifyAdminCredentials(username, password);
+  if (adminOk) {
+    const u = getAdminUsernameNormalized();
     const token = signAdminSessionPayload({ username: u, role: "admin", referrerId: null }, secret);
     const jar = await cookies();
     jar.set(ADMIN_SESSION_COOKIE, token, {

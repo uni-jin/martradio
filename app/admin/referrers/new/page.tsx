@@ -17,7 +17,7 @@ export default function AdminReferrerFormPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("editId");
-  const isSuper = getCurrentAdmin()?.role === "admin";
+  const isSuper = getCurrentAdmin()?.role === "super";
 
   const [loading, setLoading] = useState(!!editId);
   const [loginId, setLoginId] = useState("");

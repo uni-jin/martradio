@@ -10,6 +10,7 @@ import {
 import { fetchPlanCatalog } from "@/lib/adminData";
 import { fetchAdminSession, getCurrentAdmin } from "@/lib/adminAuth";
 import {
+  adminPathAllowedByMenu,
   adminPathAllowedForReferrer,
   pickReferrerAdminFallbackPath,
 } from "@/lib/adminPathAccess.client";
@@ -85,6 +86,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
           router.replace(pickReferrerAdminFallbackPath(cachedAdmin.allowedHrefs));
           return;
         }
+        if (cachedAdmin.role === "admin" && !adminPathAllowedByMenu(p, cachedAdmin.allowedHrefs)) {
+          router.replace("/admin");
+          return;
+        }
         setAdminOk(true);
         setUserResolved(true);
         return;
@@ -102,6 +107,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         }
         if (me.role === "referrer_admin" && !adminPathAllowedForReferrer(p, me.allowedHrefs)) {
           router.replace(pickReferrerAdminFallbackPath(me.allowedHrefs));
+          return;
+        }
+        if (me.role === "admin" && !adminPathAllowedByMenu(p, me.allowedHrefs)) {
+          router.replace("/admin");
           return;
         }
         setAdminOk(true);

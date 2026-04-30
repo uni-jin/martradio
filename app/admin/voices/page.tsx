@@ -9,6 +9,7 @@ import { GEMINI_31_FLASH_TTS_VOICE_NAMES } from "@/lib/geminiTtsVoiceNames";
 import { buildGoogleTtsSynthesizeBody, googleTtsApiJsonBody } from "@/lib/ttsGoogleRequest";
 import { SELECT_CHEVRON_TAILWIND } from "@/app/_lib/selectChevron";
 import { fetchAdminJsonCached, invalidateAdminClientCache } from "@/lib/adminClientCache";
+import { getCurrentAdmin } from "@/lib/adminAuth";
 
 /** 미리듣기에 사용하는 고정 문구 */
 const PREVIEW_TEXT = "안녕하세요, 고객님들! 할인 방송 테스트입니다.";
@@ -133,6 +134,8 @@ function sortVoiceTemplates(list: VoiceTemplate[]): VoiceTemplate[] {
 }
 
 export default function AdminVoicesPage() {
+  const session = getCurrentAdmin();
+  const canWrite = session?.role === "super" || (session?.role === "admin" && session.canManageVoiceTemplates === true);
   const [list, setList] = useState<VoiceTemplate[]>([]);
   const [googleVoices, setGoogleVoices] = useState<GoogleVoiceRow[]>([]);
   const [googleError, setGoogleError] = useState<string | null>(null);
@@ -419,15 +422,17 @@ export default function AdminVoicesPage() {
         사용자 화면에서 음성을 생성할 때 선택하는 목소리 목록을 그대로 보여주며, 노출/유료 여부를 제어합니다.
       </p>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={startAdd}
-          className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900"
-        >
-          템플릿 추가
-        </button>
-      </div>
+      {canWrite ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={startAdd}
+            className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900"
+          >
+            템플릿 추가
+          </button>
+        </div>
+      ) : null}
       {googleError && <p className="mb-3 text-sm text-red-600">{googleError}</p>}
       {previewError && (
         <p className="mb-3 text-sm text-red-600" role="alert">
@@ -774,20 +779,24 @@ export default function AdminVoicesPage() {
                 >
                   {previewingKey === v.id ? "재생 중…" : "미리듣기"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => startEdit(v)}
-                  className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50"
-                >
-                  수정
-                </button>
-                <button
-                  type="button"
-                  onClick={() => remove(v.id)}
-                  className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50"
-                >
-                  삭제
-                </button>
+                {canWrite ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(v)}
+                      className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50"
+                    >
+                      수정
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => remove(v.id)}
+                      className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50"
+                    >
+                      삭제
+                    </button>
+                  </>
+                ) : null}
               </div>
             </div>
           </div>

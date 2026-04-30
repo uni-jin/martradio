@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSuperAdminApi } from "@/lib/requireAdminApi.server";
+import { requireAdminPathAccessApi, requireSuperAdminApi } from "@/lib/requireAdminApi.server";
+import { ADMIN_PROMPTS_HREF } from "@/lib/adminMenuCatalog";
 import { validatePromoScriptTemplate } from "@/lib/promoScriptPrompt";
 import { getPromoScriptTemplateForEdit, writePromoScriptPromptPersisted } from "@/lib/promoScriptPromptStore.server";
 
 export async function GET() {
-  const admin = await requireSuperAdminApi();
+  const admin = await requireAdminPathAccessApi(ADMIN_PROMPTS_HREF);
   if (admin instanceof NextResponse) return admin;
 
   const { template, updatedAt, source } = await getPromoScriptTemplateForEdit();

@@ -11,7 +11,7 @@ export async function GET() {
   const admin = await requireAdminApi();
   if (admin instanceof NextResponse) return admin;
 
-  if (admin.role === "admin") {
+  if (admin.role === "super" || admin.role === "admin") {
     const { referrers } = await readReferrerStore();
     return NextResponse.json({ ok: true, referrers: referrers.map(toPublicReferrer) });
   }

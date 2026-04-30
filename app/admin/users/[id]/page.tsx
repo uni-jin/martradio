@@ -47,7 +47,7 @@ export default function AdminUserDetailPage() {
     },
     [scopeReferrerId, userId, users]
   );
-  const canManageReferrer = session?.role === "admin";
+  const canManageReferrer = session?.role === "super" || session?.role === "admin";
 
   const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
   useEffect(() => {
@@ -58,7 +58,7 @@ export default function AdminUserDetailPage() {
         fetchAdminJsonCached<{ users?: Record<string, unknown>[] }>("/api/admin/users"),
         fetchAdminJsonCached<{ products?: { id: string; name: string; priceMonthly: number }[] }>(
           "/api/admin/data/products"
-        ),
+        ).catch(() => ({ products: [] })),
         fetchAdminJsonCached<{ payments?: AdminPayment[] }>("/api/admin/data/payments"),
       ]);
       if (canceled) return;

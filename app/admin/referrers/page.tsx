@@ -20,7 +20,7 @@ function inferCreatedAt(r: AdminReferrer): string | null {
 
 export default function AdminReferrersPage() {
   const router = useRouter();
-  const isSuper = getCurrentAdmin()?.role === "admin";
+  const isSuper = getCurrentAdmin()?.role === "super";
   const [referrers, setReferrers] = useState<AdminReferrer[]>([]);
   const [users, setUsers] = useState<Record<string, unknown>[]>([]);
   const [payments, setPayments] = useState<AdminPayment[]>([]);

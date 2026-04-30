@@ -214,6 +214,7 @@ export async function updateUserReferrerDb(userId: string, referrerId: string | 
 
 const PROMO_SCRIPT_PROMPT_KV = "promo_script_prompt";
 const REFERRER_ADMIN_ALLOWED_HREFS_KV = "referrer_admin_allowed_hrefs";
+const ADMIN_PERMISSIONS_KV = "admin_permissions";
 
 let legacyPromoMigrated = false;
 
@@ -276,6 +277,22 @@ export async function getReferrerAdminAllowedHrefsDb(): Promise<string[]> {
 
 export async function setReferrerAdminAllowedHrefsDb(hrefs: string[]): Promise<void> {
   await writeKv(REFERRER_ADMIN_ALLOWED_HREFS_KV, hrefs);
+}
+
+export async function getAdminPermissionsDb(): Promise<{
+  allowedHrefs?: string[];
+  canManageVoiceTemplates?: boolean;
+} | null> {
+  const v = await readKv<unknown>(ADMIN_PERMISSIONS_KV, null);
+  if (!v || typeof v !== "object") return null;
+  return v as { allowedHrefs?: string[]; canManageVoiceTemplates?: boolean };
+}
+
+export async function setAdminPermissionsDb(input: {
+  allowedHrefs: string[];
+  canManageVoiceTemplates: boolean;
+}): Promise<void> {
+  await writeKv(ADMIN_PERMISSIONS_KV, input);
 }
 
 /** 구독 결제 확정 시 관리자 결제 목록에 반영(동일 orderId면 upsert로 덮어씀). */

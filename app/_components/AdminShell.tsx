@@ -4,7 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import { useAdminSession } from "@/app/_components/AdminSessionProvider";
-import { ADMIN_MENU_GROUPS, REFERRER_ADMIN_PASSWORD_HREF } from "@/lib/adminMenuCatalog";
+import {
+  ADMIN_MENU_GROUPS,
+  ADMIN_PERMISSION_MANAGEMENT_HREF,
+  REFERRER_ADMIN_PASSWORD_HREF,
+} from "@/lib/adminMenuCatalog";
 import { adminMenuHrefAllowed } from "@/lib/adminPathAccess.client";
 import type { AdminSession } from "@/lib/adminAuth";
 
@@ -46,7 +50,7 @@ function buildMenuGroups(session: AdminSession): MenuGroup[] {
     items: g.items.map((it) => ({ href: it.href, label: it.label })),
   }));
 
-  if (session.role === "admin") {
+  if (session.role === "super") {
     return base.map((g) => {
       if (g.title !== "설정") {
         return { ...g, items: g.items.filter((i) => i.href !== REFERRER_ADMIN_PASSWORD_HREF) };
@@ -55,10 +59,24 @@ function buildMenuGroups(session: AdminSession): MenuGroup[] {
         ...g,
         items: dedupeItems([
           ...g.items.filter((i) => i.href !== REFERRER_ADMIN_PASSWORD_HREF),
-          { href: "/admin/settings/referrer-permissions", label: "관리자 권한 관리" },
+          { href: ADMIN_PERMISSION_MANAGEMENT_HREF, label: "관리자 권한 관리" },
         ]),
       };
     });
+  }
+
+  if (session.role === "admin") {
+    const allowed = session.allowedHrefs ?? [];
+    const out: MenuGroup[] = [];
+    for (const g of base) {
+      let items = g.items.filter((it) => adminMenuHrefAllowed(it.href, allowed));
+      if (g.title === "설정" && adminMenuHrefAllowed(ADMIN_PERMISSION_MANAGEMENT_HREF, allowed)) {
+        items = dedupeItems([...items, { href: ADMIN_PERMISSION_MANAGEMENT_HREF, label: "관리자 권한 관리" }]);
+      }
+      if (items.length === 0) continue;
+      out.push({ ...g, items });
+    }
+    return out;
   }
 
   const allowed = session.allowedHrefs ?? [];

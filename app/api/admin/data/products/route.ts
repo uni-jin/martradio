@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminApi, requireSuperAdminApi } from "@/lib/requireAdminApi.server";
+import { requireAdminPathAccessApi, requireSuperAdminApi } from "@/lib/requireAdminApi.server";
+import { ADMIN_PRODUCTS_HREF } from "@/lib/adminMenuCatalog";
 import { getAdminProductsDb, saveAdminProductsDb } from "@/lib/adminDataSupabase.server";
 
 export async function GET() {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminPathAccessApi(ADMIN_PRODUCTS_HREF);
   if (gate instanceof NextResponse) return gate;
   try {
     const products = await getAdminProductsDb();

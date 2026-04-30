@@ -2,10 +2,11 @@
 
 export type AdminSession = {
   username: string;
-  role: "admin" | "referrer_admin";
+  role: "super" | "admin" | "referrer_admin";
   referrerId?: string | null;
   mustChangePassword?: boolean;
   allowedHrefs?: string[] | null;
+  canManageVoiceTemplates?: boolean;
 };
 
 const ADMIN_CLIENT_CACHE_KEY = "mart-radio-admin-session";
@@ -23,7 +24,10 @@ function clearLegacyLocalStorage(): void {
 
 function parseMePayload(data: Record<string, unknown>): AdminSession {
   const username = typeof data.username === "string" ? data.username : "";
-  const role = data.role === "referrer_admin" ? "referrer_admin" : "admin";
+  const role =
+    data.role === "super" || data.role === "admin" || data.role === "referrer_admin"
+      ? data.role
+      : "admin";
   const referrerId =
     typeof data.referrerId === "string" && data.referrerId.trim() ? data.referrerId.trim() : null;
   const mustChangePassword = data.mustChangePassword === true;
@@ -41,6 +45,7 @@ function parseMePayload(data: Record<string, unknown>): AdminSession {
     referrerId,
     mustChangePassword,
     allowedHrefs,
+    canManageVoiceTemplates: data.canManageVoiceTemplates === true,
   };
 }
 
