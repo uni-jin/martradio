@@ -13,7 +13,7 @@ const notoSansKr = Noto_Sans_KR({
 });
 
 export const metadata: Metadata = {
-  title: "마트방송 (Mart Radio)",
+  title: "유니누리 (uninoori)",
   description: "동네 마트 행사/타임세일 방송 멘트 생성 · MP3 저장 · 재생",
 };
 

@@ -35,7 +35,7 @@ export default function LoginPage() {
     <main className="flex flex-1 flex-col justify-center bg-[var(--bg)]">
       <div className="mx-auto w-full max-w-md px-4 py-6">
         <div className="w-full rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
-          <h1 className="text-3xl font-bold text-stone-800">마트방송 로그인</h1>
+          <h1 className="text-3xl font-bold text-stone-800">유니누리 로그인</h1>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>

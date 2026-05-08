@@ -133,7 +133,7 @@ export default function AdminReferrerPaymentsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `마트방송_referrer_stats_${year}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `유니누리_referrer_stats_${year}_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };

@@ -609,7 +609,7 @@ export default function PricingPage() {
             await toss.requestBillingAuth("카드", {
               customerKey,
               customerEmail: userEmail ?? undefined,
-              customerName: userEmail ?? "마트방송 사용자",
+              customerName: userEmail ?? "유니누리 사용자",
               successUrl: `${origin}/pricing?checkout=billing_success&planId=${chosenPlan}`,
               failUrl: `${origin}/pricing?checkout=billing_fail`,
             });

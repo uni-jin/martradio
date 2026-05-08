@@ -84,7 +84,7 @@ export default function ClientTopBar() {
       onClick={() => router.push("/")}
       className="shrink-0 text-left text-base font-semibold text-stone-800 hover:text-amber-700"
     >
-      마트방송 시스템
+      유니누리
     </button>
   );
 
@@ -97,7 +97,7 @@ export default function ClientTopBar() {
             onClick={() => router.push("/admin")}
             className="shrink-0 text-left text-base font-semibold text-stone-800 hover:text-amber-700"
           >
-            마트방송 관리자
+            유니누리 관리자
           </button>
         </div>
         {adminId ? (

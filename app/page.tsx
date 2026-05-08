@@ -48,7 +48,7 @@ export default function HomePage() {
       <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16">
         <header className="mb-12 text-center">
           <h1 className="text-4xl font-bold tracking-tight text-stone-800 sm:text-5xl">
-            마트방송
+            유니누리
           </h1>
         </header>
 
